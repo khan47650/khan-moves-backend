@@ -17,11 +17,23 @@ const connectDB = require("./config/db");
 connectDB();
 
 
+const allowedOrigins = [
+    "http://localhost:3000",
+    "https://khan-moves-frontend.vercel.app"
+];
+
 app.use(
     cors({
-        origin: [
-            "http://localhost:3000"
-        ],
+        origin: function (origin, callback) {
+            // Allow requests with no origin (like Postman)
+            if (!origin) return callback(null, true);
+
+            if (allowedOrigins.includes(origin)) {
+                return callback(null, true);
+            }
+
+            return callback(new Error("Not allowed by CORS"));
+        },
         credentials: true,
     })
 );
