@@ -1,8 +1,16 @@
 const mongoose = require("mongoose");
 
 const expenseSchema = new mongoose.Schema({
-    job: { type: mongoose.Schema.Types.ObjectId, ref: "Job", required: true },
-    jobRef: { type: String, required: true },
+    job: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Job",
+        default: null
+    },
+
+    jobRef: {
+        type: String,
+        default: ""
+    },
     driver: { type: mongoose.Schema.Types.ObjectId, ref: "Driver", default: null },
     driverName: { type: String, default: "" },
     driverCharges: { type: Number, default: 0 },

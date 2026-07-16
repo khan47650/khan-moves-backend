@@ -188,36 +188,78 @@ const getJob = async (req, res) => {
 const updateJobStatus = async (req, res) => {
     try {
         const { status } = req.body;
-        const allowed = ["active", "on_way", "in_trash", "completed"];
-        if (!allowed.includes(status)) return res.status(400).json({ success: false, message: "Invalid status." });
+        const allowed = [
+            "active",
+            "on_way",
+            "in_trash",
+            "completed"
+        ];
 
-        const job = await Job.findByIdAndUpdate(
-            req.params.id,
-            { status },
-            { returnDocument: "after" }
-        );
-        if (!job) return res.status(404).json({ success: false, message: "Job not found." });
-
-        // Job complete hone pr cleanup
-        if (status === "completed") {
-            // Driver: assignedNow reset + totalJobs increment
-            if (job.assignedDriver) {
-                await Driver.findByIdAndUpdate(job.assignedDriver, {
-                    assignedNow: "None",
-                    $inc: { totalJobs: 1 },
-                });
-            }
-            // Vehicle: assignedDriver reset
-            if (job.assignedVehicle) {
-                await Vehicle.findByIdAndUpdate(job.assignedVehicle, {
-                    assignedDriver: "",
-                });
-            }
+        if (!allowed.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status."
+            });
         }
 
-        res.json({ success: true, data: job });
+        const job = await Job.findById(req.params.id);
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: "Job not found."
+            });
+        }
+
+
+        job.status = status;
+        await job.save();
+        // COMPLETE JOB
+        if (status === "completed") {
+            // Driver update
+            if (job.assignedDriver) {
+                await Driver.findByIdAndUpdate(
+                    job.assignedDriver,
+                    {
+                        assignedNow: "None",
+
+                        $inc: {
+                            totalJobs: 1
+                        },
+
+                        $addToSet: {
+                            completedJobs: job._id
+                        }
+                    }
+                );
+
+            }
+            // Vehicle release
+            if (job.assignedVehicle) {
+
+                await Vehicle.findByIdAndUpdate(
+                    job.assignedVehicle,
+                    {
+                        assignedDriver: ""
+                    }
+                );
+
+            }
+
+
+        }
+
+
+        res.json({
+            success: true,
+            data: job
+        });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+
+        res.status(500).json({
+            success: false,
+            message: err.message
+        });
+
     }
 };
 
