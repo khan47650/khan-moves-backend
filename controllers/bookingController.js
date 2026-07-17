@@ -159,6 +159,157 @@ const updateBookingStatus = async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 };
+///update booking.................
+const updateBooking = async (req, res) => {
+    try {
+        const booking = await Booking.findById(req.params.id);
+
+        if (!booking) {
+            return res.status(404).json({
+                success: false,
+                message: "Booking not found."
+            });
+        }
+
+        if (!["pending", "in_progress"].includes(booking.status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Only pending or in-progress bookings can be edited."
+            });
+        }
+
+        const body = req.body;
+        const postcodeRegex = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+
+        const pickup = {
+            ...(booking.pickup?.toObject?.() || booking.pickup || {}),
+            ...(body.pickup || {})
+        };
+
+        const delivery = {
+            ...(booking.delivery?.toObject?.() || booking.delivery || {}),
+            ...(body.delivery || {})
+        };
+
+        if (!postcodeRegex.test((pickup.postcode || "").trim())) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pickup postcode."
+            });
+        }
+
+        if (!postcodeRegex.test((delivery.postcode || "").trim())) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid delivery postcode."
+            });
+        }
+
+        const items = Array.isArray(body.items)
+            ? body.items
+                .filter((item) => item?.name && Number(item.quantity || 0) > 0)
+                .map((item) => ({
+                    name: String(item.name).trim(),
+                    volume: Number(item.volume || 0),
+                    quantity: Number(item.quantity || 1),
+                    custom: Boolean(item.custom)
+                }))
+            : booking.items;
+
+        if (!items.length) {
+            return res.status(400).json({
+                success: false,
+                message: "At least one item is required."
+            });
+        }
+
+        const totalVolume = items.reduce(
+            (sum, item) =>
+                sum +
+                Number(item.volume || 0) *
+                Number(item.quantity || 1),
+            0
+        );
+
+        const pickupFloor = {
+            ...(booking.pickupFloor?.toObject?.() ||
+                booking.pickupFloor ||
+                {}),
+            ...(body.pickupFloor || {})
+        };
+
+        const deliveryFloor = {
+            ...(booking.deliveryFloor?.toObject?.() ||
+                booking.deliveryFloor ||
+                {}),
+            ...(body.deliveryFloor || {})
+        };
+
+        const pricingData = {
+            totalVolume,
+            distance:
+                body.distance !== undefined
+                    ? Number(body.distance || 0)
+                    : Number(booking.distance || 0),
+            pickupFloor,
+            deliveryFloor,
+            helperCount:
+                body.helperCount !== undefined
+                    ? Number(body.helperCount || 0)
+                    : Number(booking.helperCount || 0),
+            dismantleCount:
+                body.dismantleCount !== undefined
+                    ? Number(body.dismantleCount || 0)
+                    : Number(booking.dismantleCount || 0),
+            assemblyCount:
+                body.assemblyCount !== undefined
+                    ? Number(body.assemblyCount || 0)
+                    : Number(booking.assemblyCount || 0),
+            packingService:
+                body.packingService !== undefined
+                    ? Boolean(body.packingService)
+                    : Boolean(booking.packingService),
+            dateType: body.dateType || booking.dateType,
+            timeSlot:
+                body.timeSlot !== undefined
+                    ? body.timeSlot
+                    : booking.timeSlot
+        };
+
+        booking.pickup = pickup;
+        booking.delivery = delivery;
+        booking.pickupFloor = pickupFloor;
+        booking.deliveryFloor = deliveryFloor;
+        booking.items = items;
+        booking.totalVolume = totalVolume;
+        booking.distance = pricingData.distance;
+        booking.dateType = pricingData.dateType;
+        booking.date =
+            body.date !== undefined ? body.date : booking.date;
+        booking.timeSlot = pricingData.timeSlot;
+        booking.helperCount = pricingData.helperCount;
+        booking.dismantleCount = pricingData.dismantleCount;
+        booking.assemblyCount = pricingData.assemblyCount;
+        booking.packingService = pricingData.packingService;
+        booking.specialInstructions =
+            body.specialInstructions !== undefined
+                ? body.specialInstructions
+                : booking.specialInstructions;
+        booking.totalPrice = calculatePrice(pricingData);
+
+        await booking.save();
+
+        return res.json({
+            success: true,
+            data: booking
+        });
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
 
 // ── DELETE /api/bookings/:id ────────────────────────────────────────────────
 const deleteBooking = async (req, res) => {
@@ -406,6 +557,7 @@ module.exports = {
     getBooking,
     getBookingByRef,
     updateBookingStatus,
+    updateBooking,
     deleteBooking,
     getInvoiceBookings,
     updateBookingPrice,

@@ -285,13 +285,17 @@ const assignJob = async (req, res) => {
 
             // Send WhatsApp to driver with job details + locations
             if (driver.phone) {
-                const pickupMapsLink = job.pickup?.lat && job.pickup?.lng
-                    ? `https://maps.google.com/?q=${job.pickup.lat},${job.pickup.lng}`
-                    : `https://maps.google.com/?q=${encodeURIComponent((job.pickup?.address || '') + ' ' + (job.pickup?.postcode || ''))}`;
+                const getDirectionsLink = location => {
+                    const destination =
+                        location?.lat && location?.lng
+                            ? `${location.lat},${location.lng}`
+                            : `${location?.address || ""} ${location?.postcode || ""}`.trim();
 
-                const deliveryMapsLink = job.delivery?.lat && job.delivery?.lng
-                    ? `https://maps.google.com/?q=${job.delivery.lat},${job.delivery.lng}`
-                    : `https://maps.google.com/?q=${encodeURIComponent((job.delivery?.address || '') + ' ' + (job.delivery?.postcode || ''))}`;
+                    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving&dir_action=navigate`;
+                };
+
+                const pickupMapsLink = getDirectionsLink(job.pickup);
+                const deliveryMapsLink = getDirectionsLink(job.delivery);
 
                 const message =
                     `Hello ${driver.name},\n\nYou have been assigned a new job!\n\n` +
@@ -302,16 +306,24 @@ const assignJob = async (req, res) => {
                     `*CUSTOMER CONTACT:*\n` +
                     `Name: ${job.customer?.name || "—"}\n` +
                     `Phone: ${job.customer?.phone || "—"}\n` +
-                    (job.customer?.whatsapp ? `WhatsApp: ${job.customer.whatsapp}\n` : "") +
-                    `\n*PICKUP LOCATION:*\n${job.pickup?.address || "—"}, ${job.pickup?.postcode || ""}\n` +
+                    (job.customer?.whatsapp
+                        ? `WhatsApp: ${job.customer.whatsapp}\n`
+                        : "") +
+                    `\n*PICKUP LOCATION:*\n` +
+                    `${job.pickup?.address || "—"}, ${job.pickup?.postcode || ""}\n` +
                     `Floor: ${job.pickupFloor?.floorLevel || "Ground"} | Lift: ${job.pickupFloor?.hasLift ? "Yes" : "No"} | Parking: ${job.pickupFloor?.hasParking ? "Yes" : "No"}\n` +
-                    `Track: ${pickupMapsLink}\n\n` +
-                    `*DELIVERY LOCATION:*\n${job.delivery?.address || "—"}, ${job.delivery?.postcode || ""}\n` +
+                    `Directions: ${pickupMapsLink}\n\n` +
+                    `*DELIVERY LOCATION:*\n` +
+                    `${job.delivery?.address || "—"}, ${job.delivery?.postcode || ""}\n` +
                     `Floor: ${job.deliveryFloor?.floorLevel || "Ground"} | Lift: ${job.deliveryFloor?.hasLift ? "Yes" : "No"} | Parking: ${job.deliveryFloor?.hasParking ? "Yes" : "No"}\n` +
-                    `Track: ${deliveryMapsLink}\n\n` +
+                    `Directions: ${deliveryMapsLink}\n\n` +
                     `*Distance:* ${job.distance || 0} miles\n\n` +
-                    (job.specialInstructions ? `*Special Instructions:* ${job.specialInstructions}\n\n` : "") +
-                    `Please be on time.\n\n*Please reply CONFIRM when you start the job.*\n— Khan Moves`;
+                    (job.specialInstructions
+                        ? `*Special Instructions:* ${job.specialInstructions}\n\n`
+                        : "") +
+                    `Please be on time.\n\n` +
+                    `*Please reply CONFIRM when you start the job.*\n` +
+                    `— Khan Moves`;
 
                 await sendWhatsApp(driver.phone, message);
             }
