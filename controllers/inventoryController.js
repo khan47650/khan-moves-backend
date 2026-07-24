@@ -1,221 +1,360 @@
 const Service = require("../models/Service");
 
-// ── Helper ──
-const slugify = (label) =>
-    label.toLowerCase().trim().replace(/\s+/g, "_");
+const slugify = value => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+const errorMessage = err => err.name === "CastError" ? "Invalid inventory ID." : err.message;
+const getCategory = (service, id) => service.categories.id(id);
 
+const findItem = (service, itemId) => {
+    for (const category of service.categories) {
+        const item = category.items.id(itemId);
+        if (item) return { category, item };
+    }
+    return null;
+};
 
+const itemResponse = (item, category) => ({
+    ...item.toObject(),
+    categoryId: category._id,
+    categoryName: category.name
+});
 
-// GET /api/inventory/services
 const getAllServices = async (req, res) => {
     try {
         const services = await Service.find().sort({ createdAt: 1 });
         res.json({ success: true, data: services });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// POST /api/inventory/services
 const createService = async (req, res) => {
     try {
-        const { label } = req.body;
-        if (!label || !label.trim())
-            return res.status(400).json({ success: false, message: "Service name is required." });
+        const label = req.body.label?.trim();
+        if (!label) return res.status(400).json({ success: false, message: "Service name is required." });
 
         const slug = slugify(label);
+        if (!slug) return res.status(400).json({ success: false, message: "Enter a valid service name." });
 
         const exists = await Service.findOne({ slug });
-        if (exists)
-            return res.status(409).json({ success: false, message: "A service with this name already exists." });
+        if (exists) return res.status(409).json({ success: false, message: "A service with this name already exists." });
 
-        const service = await Service.create({ label: label.trim(), slug, items: [] });
+        const service = await Service.create({ label, slug, categories: [] });
         res.status(201).json({ success: true, data: service });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// PUT /api/inventory/services/:serviceId
 const updateService = async (req, res) => {
     try {
-        const { label } = req.body;
-        if (!label || !label.trim())
-            return res.status(400).json({ success: false, message: "Service name is required." });
+        const label = req.body.label?.trim();
+        if (!label) return res.status(400).json({ success: false, message: "Service name is required." });
+
+        const slug = slugify(label);
+        const duplicate = await Service.findOne({
+            slug,
+            _id: { $ne: req.params.serviceId }
+        });
+
+        if (duplicate) return res.status(409).json({
+            success: false,
+            message: "A service with this name already exists."
+        });
 
         const service = await Service.findByIdAndUpdate(
             req.params.serviceId,
-            { label: label.trim() },
-            { new: true }
+            { label, slug },
+            { new: true, runValidators: true }
         );
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
 
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
         res.json({ success: true, data: service });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// DELETE /api/inventory/services/:serviceId
 const deleteService = async (req, res) => {
     try {
         const service = await Service.findByIdAndDelete(req.params.serviceId);
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
-
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
         res.json({ success: true, message: "Service deleted successfully." });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// ────────────────────────────────────────────────
-// ITEMS
-// ────────────────────────────────────────────────
+/* Categories */
 
-// POST /api/inventory/services/:serviceId/items
+const addCategory = async (req, res) => {
+    try {
+        const name = req.body.name?.trim();
+        if (!name) return res.status(400).json({ success: false, message: "Category name is required." });
+
+        const service = await Service.findById(req.params.serviceId);
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
+
+        const slug = slugify(name);
+        const exists = service.categories.some(category => category.slug === slug);
+
+        if (exists) return res.status(409).json({
+            success: false,
+            message: "This category already exists in the selected service."
+        });
+
+        service.categories.push({ name, slug, items: [] });
+        await service.save();
+
+        res.status(201).json({
+            success: true,
+            data: service.categories[service.categories.length - 1]
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: errorMessage(err) });
+    }
+};
+
+const updateCategory = async (req, res) => {
+    try {
+        const name = req.body.name?.trim();
+        if (!name) return res.status(400).json({ success: false, message: "Category name is required." });
+
+        const service = await Service.findById(req.params.serviceId);
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
+
+        const category = getCategory(service, req.params.categoryId);
+        if (!category) return res.status(404).json({ success: false, message: "Category not found." });
+
+        const slug = slugify(name);
+        const duplicate = service.categories.some(item =>
+            item._id.toString() !== category._id.toString() && item.slug === slug
+        );
+
+        if (duplicate) return res.status(409).json({
+            success: false,
+            message: "This category already exists in the selected service."
+        });
+
+        category.name = name;
+        category.slug = slug;
+        await service.save();
+
+        res.json({ success: true, data: category });
+    } catch (err) {
+        res.status(500).json({ success: false, message: errorMessage(err) });
+    }
+};
+
+const deleteCategory = async (req, res) => {
+    try {
+        const service = await Service.findById(req.params.serviceId);
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
+
+        const category = getCategory(service, req.params.categoryId);
+        if (!category) return res.status(404).json({ success: false, message: "Category not found." });
+
+        service.categories.pull(category._id);
+        await service.save();
+
+        res.json({
+            success: true,
+            message: "Category and its items deleted successfully."
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: errorMessage(err) });
+    }
+};
+
+/* Items */
+
 const addItem = async (req, res) => {
     try {
-        const { name, volume} = req.body;
-        if (!name || !name.trim())
-            return res.status(400).json({ success: false, message: "Item name is required." });
-        if (!volume || isNaN(volume) || Number(volume) <= 0)
-            return res.status(400).json({ success: false, message: "Enter a valid volume (m³)." });
+        const { name, volume, categoryId } = req.body;
+        const itemName = name?.trim();
+        const itemVolume = Number(volume);
+
+        if (!itemName) return res.status(400).json({ success: false, message: "Item name is required." });
+        if (!categoryId) return res.status(400).json({ success: false, message: "Select a category." });
+        if (!Number.isFinite(itemVolume) || itemVolume <= 0) return res.status(400).json({
+            success: false,
+            message: "Enter a valid volume (m³)."
+        });
 
         const service = await Service.findById(req.params.serviceId);
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
 
-        const newItem = {
-            name: name.trim(),
-            volume: Number(volume),
-            isPaused: false,
-        };
+        const category = getCategory(service, categoryId);
+        if (!category) return res.status(404).json({ success: false, message: "Category not found." });
 
-        service.items.push(newItem);
+        category.items.push({
+            name: itemName,
+            volume: itemVolume,
+            isPaused: false
+        });
+
         await service.save();
 
-        const addedItem = service.items[service.items.length - 1];
-        res.status(201).json({ success: true, data: addedItem });
+        const item = category.items[category.items.length - 1];
+        res.status(201).json({
+            success: true,
+            data: itemResponse(item, category)
+        });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// PUT /api/inventory/services/:serviceId/items/:itemId
 const updateItem = async (req, res) => {
     try {
-        const { name, volume } = req.body;
-
+        const { name, volume, categoryId } = req.body;
         const service = await Service.findById(req.params.serviceId);
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
 
-        const item = service.items.id(req.params.itemId);
-        if (!item)
-            return res.status(404).json({ success: false, message: "Item not found." });
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
 
-        if (name !== undefined) item.name = name.trim();
-        if (volume !== undefined) {
-            if (isNaN(volume) || Number(volume) <= 0)
-                return res.status(400).json({ success: false, message: "Enter a valid volume (m³)." });
-            item.volume = Number(volume);
+        const result = findItem(service, req.params.itemId);
+        if (!result) return res.status(404).json({ success: false, message: "Item not found." });
+
+        const { category: oldCategory, item } = result;
+        const targetCategory = categoryId ? getCategory(service, categoryId) : oldCategory;
+
+        if (!targetCategory) return res.status(404).json({ success: false, message: "Category not found." });
+
+        const itemName = name === undefined ? item.name : name.trim();
+        const itemVolume = volume === undefined ? item.volume : Number(volume);
+
+        if (!itemName) return res.status(400).json({ success: false, message: "Item name is required." });
+        if (!Number.isFinite(itemVolume) || itemVolume <= 0) return res.status(400).json({
+            success: false,
+            message: "Enter a valid volume (m³)."
+        });
+
+        if (oldCategory._id.toString() !== targetCategory._id.toString()) {
+            const movedItem = {
+                _id: item._id,
+                name: itemName,
+                volume: itemVolume,
+                isPaused: item.isPaused
+            };
+
+            oldCategory.items.pull(item._id);
+            targetCategory.items.push(movedItem);
+            await service.save();
+
+            const updatedItem = targetCategory.items.id(item._id);
+            return res.json({
+                success: true,
+                data: itemResponse(updatedItem, targetCategory)
+            });
         }
 
+        item.name = itemName;
+        item.volume = itemVolume;
         await service.save();
-        res.json({ success: true, data: item });
+
+        res.json({
+            success: true,
+            data: itemResponse(item, oldCategory)
+        });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// DELETE /api/inventory/services/:serviceId/items/:itemId
 const deleteItem = async (req, res) => {
     try {
         const service = await Service.findById(req.params.serviceId);
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
 
-        const item = service.items.id(req.params.itemId);
-        if (!item)
-            return res.status(404).json({ success: false, message: "Item not found." });
+        const result = findItem(service, req.params.itemId);
+        if (!result) return res.status(404).json({ success: false, message: "Item not found." });
 
-        item.deleteOne();
+        result.category.items.pull(result.item._id);
         await service.save();
 
         res.json({ success: true, message: "Item deleted successfully." });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// PATCH /api/inventory/services/:serviceId/items/:itemId/pause
 const togglePauseItem = async (req, res) => {
     try {
         const service = await Service.findById(req.params.serviceId);
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
 
-        const item = service.items.id(req.params.itemId);
-        if (!item)
-            return res.status(404).json({ success: false, message: "Item not found." });
+        const result = findItem(service, req.params.itemId);
+        if (!result) return res.status(404).json({ success: false, message: "Item not found." });
 
-        item.isPaused = !item.isPaused;
+        result.item.isPaused = !result.item.isPaused;
         await service.save();
 
-        res.json({ success: true, data: item });
+        res.json({
+            success: true,
+            data: itemResponse(result.item, result.category)
+        });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// PATCH /api/inventory/services/:serviceId/items/bulk-pause
 const bulkPauseItems = async (req, res) => {
     try {
         const { itemIds, pause } = req.body;
-        // pause: true = pause karo, false = resume karo
 
-        if (!Array.isArray(itemIds) || itemIds.length === 0)
-            return res.status(400).json({ success: false, message: "itemIds array is required." });
+        if (!Array.isArray(itemIds) || !itemIds.length) return res.status(400).json({
+            success: false,
+            message: "itemIds array is required."
+        });
+
+        if (typeof pause !== "boolean") return res.status(400).json({
+            success: false,
+            message: "pause must be true or false."
+        });
 
         const service = await Service.findById(req.params.serviceId);
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
 
-        service.items.forEach(item => {
-            if (itemIds.includes(item._id.toString())) {
-                item.isPaused = pause;
-            }
+        const idSet = new Set(itemIds.map(String));
+
+        service.categories.forEach(category => {
+            category.items.forEach(item => {
+                if (idSet.has(item._id.toString())) item.isPaused = pause;
+            });
         });
 
         await service.save();
-        res.json({ success: true, message: `Items ${pause ? 'paused' : 'resumed'} successfully.` });
+
+        res.json({
+            success: true,
+            message: `Items ${pause ? "paused" : "resumed"} successfully.`
+        });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
-// DELETE /api/inventory/services/:serviceId/items/bulk-delete
 const bulkDeleteItems = async (req, res) => {
     try {
         const { itemIds } = req.body;
 
-        if (!Array.isArray(itemIds) || itemIds.length === 0)
-            return res.status(400).json({ success: false, message: "itemIds array is required." });
+        if (!Array.isArray(itemIds) || !itemIds.length) return res.status(400).json({
+            success: false,
+            message: "itemIds array is required."
+        });
 
         const service = await Service.findById(req.params.serviceId);
-        if (!service)
-            return res.status(404).json({ success: false, message: "Service not found." });
+        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
 
-        service.items = service.items.filter(
-            item => !itemIds.includes(item._id.toString())
-        );
+        const idSet = new Set(itemIds.map(String));
+
+        service.categories.forEach(category => {
+            category.items = category.items.filter(item => !idSet.has(item._id.toString()));
+        });
 
         await service.save();
         res.json({ success: true, message: "Items deleted successfully." });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        res.status(500).json({ success: false, message: errorMessage(err) });
     }
 };
 
@@ -224,10 +363,13 @@ module.exports = {
     createService,
     updateService,
     deleteService,
+    addCategory,
+    updateCategory,
+    deleteCategory,
     addItem,
     updateItem,
     deleteItem,
     togglePauseItem,
     bulkPauseItems,
-    bulkDeleteItems,
+    bulkDeleteItems
 };

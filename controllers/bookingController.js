@@ -1,53 +1,86 @@
 const Booking = require("../models/Booking");
+const Counter = require("../models/Counter");
 const sendEmail = require("../utils/sendEmail");
+const {
+    calculateTotalPrice,
+    getPriceBreakdown
+} = require("../utils/bookingPriceCalculator");
 const { sendWhatsApp, sendWhatsAppDocument } = require("../utils/sendWhatsApp");
 
 // ── Price calculator (same logic as frontend) ──────────────────────────────
-const getVolumeCharge = (vol) => {
-    if (vol <= 0) return 0;
-    let charge = 0;
-    const units = vol / 0.1;
-    const t1 = Math.min(units, 30);
-    charge += t1 * 0.90;
-    if (units <= 30) return charge;
-    const t2 = Math.min(units - 30, 40);
-    charge += t2 * 1.10;
-    if (units <= 70) return charge;
-    const t3 = Math.min(units - 70, 50);
-    charge += t3 * 1.30;
-    if (units <= 120) return charge;
-    charge += (units - 120) * 1.80;
-    return charge;
+const generateBookingReference = async () => {
+    const counter = await Counter.findByIdAndUpdate(
+        "bookingSequence",
+        { $inc: { sequence: 1 } },
+        {
+            returnDocument: "after",
+            upsert: true,
+            setDefaultsOnInsert: true
+        }
+    );
+
+    const parts = new Intl.DateTimeFormat("en-GB", {
+        timeZone: "Europe/London",
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit"
+    }).formatToParts(new Date());
+
+    const getPart = type =>
+        parts.find(part => part.type === type)?.value || "";
+
+    const day = getPart("day");
+    const month = getPart("month");
+    const year = getPart("year");
+
+    return {
+        bookingSequence: counter.sequence,
+        bookingRef: `KM${counter.sequence}-${day}-${month}-${year}`
+    };
 };
 
-const getFloorCharge = (floorLevel, hasLift, vol) => {
-    if (!floorLevel || floorLevel === "ground") return 0;
-    if (floorLevel === "basement") return 5 * vol;
-    const floorMap = { "1st": 1, "2nd": 2, "3rd": 3, "4th+": 4 };
-    const f = floorMap[floorLevel] || 0;
-    if (f === 0) return 0;
-    return (hasLift ? 2 : 5) * f * vol;
+const sanitizeItems = (rawItems = []) => {
+    return rawItems
+        .filter(item => item?.name && Number(item.quantity || 0) > 0)
+        .map(item => ({
+            itemId: item.itemId || item._id || null,
+            categoryId: item.categoryId || null,
+            categoryName: String(item.categoryName || "").trim(),
+            name: String(item.name).trim(),
+            volume: Math.max(0, Number(item.volume) || 0),
+            quantity: Math.max(
+                1,
+                Math.floor(Number(item.quantity) || 1)
+            ),
+            custom: Boolean(item.custom),
+            weight:
+                item.weight !== undefined && item.weight !== null
+                    ? Math.max(0, Number(item.weight) || 0)
+                    : null,
+            notes: String(item.notes || "").trim(),
+            dimensions: item.dimensions || undefined
+        }));
 };
 
-const calculatePrice = (data) => {
-    const vol = data.totalVolume || 0;
-    const dist = data.distance || 0;
+const sanitizeAddOnItems = (rawItems = []) => {
+    return rawItems
+        .filter(item => item?.name && Number(item.quantity || 0) > 0)
+        .map(item => ({
+            itemId: item.itemId || item._id || null,
+            name: String(item.name).trim(),
+            categoryName: String(item.categoryName || "").trim(),
+            quantity: Math.max(
+                1,
+                Math.floor(Number(item.quantity) || 1)
+            )
+        }));
+};
 
-    let total = 30; // base fee
-    total += dist * 1.5;
-    total += getVolumeCharge(vol);
-    total += getFloorCharge(data.pickupFloor?.floorLevel, data.pickupFloor?.hasLift, vol);
-    total += getFloorCharge(data.deliveryFloor?.floorLevel, data.deliveryFloor?.hasLift, vol);
-    total += (data.pickupFloor?.hasParking ?? true) ? 0 : 5;
-    total += (data.deliveryFloor?.hasParking ?? true) ? 0 : 5;
-    if (data.helperCount > 0) total += data.helperCount * 50;
-    if (data.dismantleCount > 0) total += data.dismantleCount * 20;
-    if (data.assemblyCount > 0) total += data.assemblyCount * 30;
-    if (data.packingService) total += 49;
-    if (data.timeSlot === "afternoon") total += 10;
-    if (data.dateType === "flexible") total = total * 0.8;
-
-    return Math.round(total);
+const getItemsCount = items => {
+    return items.reduce(
+        (total, item) => total + (Number(item.quantity) || 0),
+        0
+    );
 };
 
 // ── POST /api/bookings ──────────────────────────────────────────────────────
@@ -55,47 +88,110 @@ const createBooking = async (req, res) => {
     try {
         const body = req.body;
 
-        // Calculate volume
-        const totalVolume = (body.items || []).reduce(
-            (s, it) => s + (it.volume || 0) * (it.quantity || 1), 0
+        const items = sanitizeItems(body.items || []);
+
+        if (items.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Please select at least one item."
+            });
+        }
+
+        const specialInstructions = String(
+            body.specialInstructions || ""
         );
 
-        // Server-side price calculation (don't trust client price)
-        const dataForPrice = { ...body, totalVolume };
-        const totalPrice = calculatePrice(dataForPrice);
+        if (specialInstructions.length > 450) {
+            return res.status(400).json({
+                success: false,
+                message: "Special instructions cannot exceed 450 characters."
+            });
+        }
+
+        const totalVolume = items.reduce(
+            (total, item) =>
+                total +
+                Number(item.volume || 0) *
+                Number(item.quantity || 1),
+            0
+        );
+
+        const dismantleItems = sanitizeAddOnItems(
+            body.dismantleItems || []
+        );
+
+        const assemblyItems = sanitizeAddOnItems(
+            body.assemblyItems || []
+        );
+
+        const dismantleCount = dismantleItems.length
+            ? getItemsCount(dismantleItems)
+            : Math.max(0, Number(body.dismantleCount) || 0);
+
+        const assemblyCount = assemblyItems.length
+            ? getItemsCount(assemblyItems)
+            : Math.max(0, Number(body.assemblyCount) || 0);
+
+        const helperCount = Number(body.helperCount) > 0 ? 1 : 0;
+
+        const pricingData = {
+            distance: Math.max(0, Number(body.distance) || 0),
+            volume: totalVolume,
+            pickupFloor: body.pickupFloor || {},
+            deliveryFloor: body.deliveryFloor || {},
+            helperCount,
+            dismantleCount,
+            assemblyCount,
+            packingService: Boolean(body.packingService),
+            dateType: body.dateType || "specific",
+            date: body.date || "",
+            timeSlot: body.timeSlot || ""
+        };
+
+        const totalPrice = calculateTotalPrice(pricingData);
+        const { breakdown } = getPriceBreakdown(pricingData);
+
+        const reference = await generateBookingReference();
 
         const booking = await Booking.create({
+            bookingRef: reference.bookingRef,
+            bookingSequence: reference.bookingSequence,
             serviceType: body.serviceType,
             pickup: body.pickup || {},
             delivery: body.delivery || {},
             pickupFloor: body.pickupFloor || {},
             deliveryFloor: body.deliveryFloor || {},
-            items: body.items || [],
+            items,
             totalVolume,
             dateType: body.dateType || "specific",
             date: body.date || "",
             timeSlot: body.timeSlot || "",
-            helperCount: body.helperCount || 0,
-            dismantleCount: body.dismantleCount || 0,
-            assemblyCount: body.assemblyCount || 0,
-            packingService: body.packingService || false,
-            specialInstructions: body.specialInstructions || "",
-            distance: body.distance || 0,
+            helperCount,
+            dismantleItems,
+            assemblyItems,
+            dismantleCount,
+            assemblyCount,
+            packingService: Boolean(body.packingService),
+            specialInstructions,
+            distance: pricingData.distance,
             totalPrice,
+            priceBreakdown: breakdown,
             customer: body.customer || {},
-            status: "pending",
+            status: "pending"
         });
 
-        res.status(201).json({
+        return res.status(201).json({
             success: true,
             data: booking,
-            bookingRef: booking.bookingRef,
+            bookingRef: booking.bookingRef
         });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
     }
 };
-
 // ── GET /api/bookings ───────────────────────────────────────────────────────
 const getAllBookings = async (req, res) => {
     try {
@@ -206,76 +302,126 @@ const updateBooking = async (req, res) => {
         }
 
         const items = Array.isArray(body.items)
-            ? body.items
-                .filter((item) => item?.name && Number(item.quantity || 0) > 0)
-                .map((item) => ({
-                    name: String(item.name).trim(),
-                    volume: Number(item.volume || 0),
-                    quantity: Number(item.quantity || 1),
-                    custom: Boolean(item.custom)
-                }))
-            : booking.items;
+            ? sanitizeItems(body.items)
+            : sanitizeItems(
+                booking.items.map(item => item.toObject?.() || item)
+            );
 
-        if (!items.length) {
+        if (items.length === 0) {
             return res.status(400).json({
                 success: false,
                 message: "At least one item is required."
             });
         }
 
+        const specialInstructions =
+            body.specialInstructions !== undefined
+                ? String(body.specialInstructions)
+                : booking.specialInstructions || "";
+
+        if (specialInstructions.length > 450) {
+            return res.status(400).json({
+                success: false,
+                message: "Special instructions cannot exceed 450 characters."
+            });
+        }
+
         const totalVolume = items.reduce(
-            (sum, item) =>
-                sum +
+            (total, item) =>
+                total +
                 Number(item.volume || 0) *
                 Number(item.quantity || 1),
             0
         );
 
         const pickupFloor = {
-            ...(booking.pickupFloor?.toObject?.() ||
+            ...(
+                booking.pickupFloor?.toObject?.() ||
                 booking.pickupFloor ||
-                {}),
+                {}
+            ),
             ...(body.pickupFloor || {})
         };
 
         const deliveryFloor = {
-            ...(booking.deliveryFloor?.toObject?.() ||
+            ...(
+                booking.deliveryFloor?.toObject?.() ||
                 booking.deliveryFloor ||
-                {}),
+                {}
+            ),
             ...(body.deliveryFloor || {})
         };
 
+        const dismantleItems = Array.isArray(body.dismantleItems)
+            ? sanitizeAddOnItems(body.dismantleItems)
+            : sanitizeAddOnItems(
+                booking.dismantleItems?.map(
+                    item => item.toObject?.() || item
+                ) || []
+            );
+
+        const assemblyItems = Array.isArray(body.assemblyItems)
+            ? sanitizeAddOnItems(body.assemblyItems)
+            : sanitizeAddOnItems(
+                booking.assemblyItems?.map(
+                    item => item.toObject?.() || item
+                ) || []
+            );
+
+        const dismantleCount = Array.isArray(body.dismantleItems)
+            ? getItemsCount(dismantleItems)
+            : body.dismantleCount !== undefined
+                ? Math.max(0, Number(body.dismantleCount) || 0)
+                : Number(booking.dismantleCount) || 0;
+
+        const assemblyCount = Array.isArray(body.assemblyItems)
+            ? getItemsCount(assemblyItems)
+            : body.assemblyCount !== undefined
+                ? Math.max(0, Number(body.assemblyCount) || 0)
+                : Number(booking.assemblyCount) || 0;
+
+        const helperCount =
+            body.helperCount !== undefined
+                ? Number(body.helperCount) > 0 ? 1 : 0
+                : Number(booking.helperCount) > 0 ? 1 : 0;
+
         const pricingData = {
-            totalVolume,
             distance:
                 body.distance !== undefined
-                    ? Number(body.distance || 0)
-                    : Number(booking.distance || 0),
+                    ? Math.max(0, Number(body.distance) || 0)
+                    : Math.max(0, Number(booking.distance) || 0),
+
+            volume: totalVolume,
+
             pickupFloor,
             deliveryFloor,
-            helperCount:
-                body.helperCount !== undefined
-                    ? Number(body.helperCount || 0)
-                    : Number(booking.helperCount || 0),
-            dismantleCount:
-                body.dismantleCount !== undefined
-                    ? Number(body.dismantleCount || 0)
-                    : Number(booking.dismantleCount || 0),
-            assemblyCount:
-                body.assemblyCount !== undefined
-                    ? Number(body.assemblyCount || 0)
-                    : Number(booking.assemblyCount || 0),
+            helperCount,
+            dismantleCount,
+            assemblyCount,
+
             packingService:
                 body.packingService !== undefined
                     ? Boolean(body.packingService)
                     : Boolean(booking.packingService),
+
             dateType: body.dateType || booking.dateType,
+
+            date:
+                body.date !== undefined
+                    ? body.date
+                    : booking.date,
+
             timeSlot:
                 body.timeSlot !== undefined
                     ? body.timeSlot
                     : booking.timeSlot
         };
 
+        const totalPrice = calculateTotalPrice(pricingData);
+        const { breakdown } = getPriceBreakdown(pricingData);
+
+        booking.serviceType =
+            body.serviceType || booking.serviceType;
         booking.pickup = pickup;
         booking.delivery = delivery;
         booking.pickupFloor = pickupFloor;
@@ -284,18 +430,24 @@ const updateBooking = async (req, res) => {
         booking.totalVolume = totalVolume;
         booking.distance = pricingData.distance;
         booking.dateType = pricingData.dateType;
-        booking.date =
-            body.date !== undefined ? body.date : booking.date;
+        booking.date = pricingData.date;
         booking.timeSlot = pricingData.timeSlot;
-        booking.helperCount = pricingData.helperCount;
-        booking.dismantleCount = pricingData.dismantleCount;
-        booking.assemblyCount = pricingData.assemblyCount;
+        booking.helperCount = helperCount;
+        booking.dismantleItems = dismantleItems;
+        booking.assemblyItems = assemblyItems;
+        booking.dismantleCount = dismantleCount;
+        booking.assemblyCount = assemblyCount;
         booking.packingService = pricingData.packingService;
-        booking.specialInstructions =
-            body.specialInstructions !== undefined
-                ? body.specialInstructions
-                : booking.specialInstructions;
-        booking.totalPrice = calculatePrice(pricingData);
+        booking.specialInstructions = specialInstructions;
+        booking.totalPrice = totalPrice;
+        booking.priceBreakdown = breakdown;
+
+        if (body.customer) {
+            booking.customer = {
+                ...(booking.customer?.toObject?.() || booking.customer || {}),
+                ...body.customer
+            };
+        }
 
         await booking.save();
 
@@ -344,34 +496,61 @@ const getInvoiceBookings = async (req, res) => {
 
 const updateBookingPrice = async (req, res) => {
     try {
-        const { finalPrice, discount = 0, tax = 0 } = req.body;
-
-        const booking = await Booking.findByIdAndUpdate(
-            req.params.id,
-            {
-                totalPrice: finalPrice,
-                discount,
-                tax
-            },
-            {
-                returnDocument: "after"
-            }
+        const finalPrice = Number(req.body.finalPrice);
+        const discount = Math.max(
+            0,
+            Number(req.body.discount) || 0
         );
+        const tax = Math.max(
+            0,
+            Number(req.body.tax) || 0
+        );
+        const invoiceNotes = String(
+            req.body.notes || ""
+        ).trim();
+
+        if (!Number.isFinite(finalPrice) || finalPrice < 0) {
+            return res.status(400).json({
+                success: false,
+                message: "Valid final price is required."
+            });
+        }
+
+        const booking = await Booking.findById(req.params.id);
 
         if (!booking) {
             return res.status(404).json({
                 success: false,
-                message: "Booking not found"
+                message: "Booking not found."
             });
         }
 
-        res.json({
-            success: true,
-            data: booking
-        });
+        booking.totalPrice =
+            Math.round(finalPrice * 100) / 100;
 
+        booking.discount =
+            Math.round(discount * 100) / 100;
+
+        booking.tax =
+            Math.round(tax * 100) / 100;
+
+        booking.invoiceNotes = invoiceNotes;
+
+        await booking.save();
+
+        const updatedBooking = await Booking.findById(
+            booking._id
+        ).lean();
+
+        return res.json({
+            success: true,
+            message: "Booking price updated successfully.",
+            data: updatedBooking
+        });
     } catch (err) {
-        res.status(500).json({
+        console.error("Update booking price error:", err);
+
+        return res.status(500).json({
             success: false,
             message: err.message
         });

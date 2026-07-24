@@ -5,6 +5,35 @@ const Vehicle = require("../models/Vehicle");
 const sendEmail = require("../utils/sendEmail");
 const { sendWhatsApp } = require("../utils/sendWhatsApp");
 
+
+const releaseJobResources = async job => {
+    const tasks = [];
+
+    if (job.assignedDriver) {
+        tasks.push(
+            Driver.findByIdAndUpdate(
+                job.assignedDriver,
+                {
+                    assignedNow: "None"
+                }
+            )
+        );
+    }
+
+    if (job.assignedVehicle) {
+        tasks.push(
+            Vehicle.findByIdAndUpdate(
+                job.assignedVehicle,
+                {
+                    assignedDriver: ""
+                }
+            )
+        );
+    }
+
+    await Promise.all(tasks);
+};
+
 const serviceMap = {
     home: "Home Removal", furniture: "Furniture Move", furniture_move: "Furniture Move",
     office: "Office Removal", office_removal: "Office Removal",
@@ -35,13 +64,26 @@ const createJobFromBooking = async (req, res) => {
             deliveryFloor: booking.deliveryFloor,
             items: booking.items,
             totalVolume: booking.totalVolume,
+
             date: booking.date,
             dateType: booking.dateType,
             timeSlot: booking.timeSlot,
+
+            deliveryDate: "",
+            deliveryTimeSlot: "",
+
             distance: booking.distance,
             totalPrice: booking.totalPrice,
             specialInstructions: booking.specialInstructions,
+
             status: "active",
+
+            statusHistory: [
+                {
+                    status: "active",
+                    reason: "Job created from confirmed booking"
+                }
+            ]
         });
 
         // Update booking status to confirmed
@@ -188,21 +230,22 @@ const getJob = async (req, res) => {
 const updateJobStatus = async (req, res) => {
     try {
         const { status } = req.body;
+
         const allowed = [
             "active",
             "on_way",
-            "in_trash",
             "completed"
         ];
 
         if (!allowed.includes(status)) {
             return res.status(400).json({
                 success: false,
-                message: "Invalid status."
+                message: "Invalid job status."
             });
         }
 
         const job = await Job.findById(req.params.id);
+
         if (!job) {
             return res.status(404).json({
                 success: false,
@@ -210,56 +253,232 @@ const updateJobStatus = async (req, res) => {
             });
         }
 
+        const previousStatus = job.status;
 
-        job.status = status;
-        await job.save();
-        // COMPLETE JOB
-        if (status === "completed") {
-            // Driver update
+        if (status === "completed" && previousStatus !== "completed") {
+            job.completedAt = new Date();
+
+            await releaseJobResources(job);
+
             if (job.assignedDriver) {
                 await Driver.findByIdAndUpdate(
                     job.assignedDriver,
                     {
-                        assignedNow: "None",
-
                         $inc: {
                             totalJobs: 1
                         },
-
                         $addToSet: {
                             completedJobs: job._id
                         }
                     }
                 );
-
-            }
-            // Vehicle release
-            if (job.assignedVehicle) {
-
-                await Vehicle.findByIdAndUpdate(
-                    job.assignedVehicle,
-                    {
-                        assignedDriver: ""
-                    }
-                );
-
             }
 
-
+            await Booking.findByIdAndUpdate(
+                job.booking,
+                {
+                    status: "completed"
+                }
+            );
         }
 
+        if (status === "on_way") {
+            await Booking.findByIdAndUpdate(
+                job.booking,
+                {
+                    status: "in_progress"
+                }
+            );
+        }
 
-        res.json({
+        job.status = status;
+
+        job.statusHistory.push({
+            status,
+            reason: `Changed from ${previousStatus}`
+        });
+
+        await job.save();
+
+        return res.json({
             success: true,
             data: job
         });
     } catch (err) {
-
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: err.message
         });
+    }
+};
 
+const cancelJob = async (req, res) => {
+    try {
+        const reason = String(req.body.reason || "").trim();
+
+        if (reason.length < 5) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a clear cancellation reason."
+            });
+        }
+
+        const job = await Job.findById(req.params.id);
+
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: "Job not found."
+            });
+        }
+
+        if (!["active", "on_way"].includes(job.status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Only active or on-way jobs can be cancelled."
+            });
+        }
+
+        await releaseJobResources(job);
+
+        job.status = "cancelled";
+        job.cancelReason = reason;
+        job.cancelledAt = new Date();
+
+        job.statusHistory.push({
+            status: "cancelled",
+            reason
+        });
+
+        await job.save();
+
+        await Booking.findByIdAndUpdate(
+            job.booking,
+            {
+                status: "cancelled",
+                adminNotes: reason
+            }
+        );
+
+        return res.json({
+            success: true,
+            message: "Job cancelled successfully.",
+            data: job
+        });
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
+const moveJobToTrash = async (req, res) => {
+    try {
+        const job = await Job.findById(req.params.id);
+
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: "Job not found."
+            });
+        }
+
+        if (job.status !== "cancelled") {
+            return res.status(400).json({
+                success: false,
+                message: "Only cancelled jobs can be moved to Trash."
+            });
+        }
+
+        job.status = "in_trash";
+        job.trashedAt = new Date();
+
+        job.statusHistory.push({
+            status: "in_trash",
+            reason: "Moved to Trash by admin"
+        });
+
+        await job.save();
+
+        return res.json({
+            success: true,
+            message: "Job moved to Trash.",
+            data: job
+        });
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
+const updateJobSchedule = async (req, res) => {
+    try {
+        const {
+            date,
+            dateType,
+            timeSlot,
+            deliveryDate,
+            deliveryTimeSlot
+        } = req.body;
+
+        const job = await Job.findById(req.params.id);
+
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: "Job not found."
+            });
+        }
+
+        if (
+            dateType !== undefined &&
+            !["specific", "flexible"].includes(dateType)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid date type."
+            });
+        }
+
+        if (dateType !== undefined) {
+            job.dateType = dateType;
+        }
+
+        if (date !== undefined) {
+            job.date = String(date || "");
+        }
+
+        if (timeSlot !== undefined) {
+            job.timeSlot = String(timeSlot || "");
+        }
+
+        if (deliveryDate !== undefined) {
+            job.deliveryDate = String(deliveryDate || "");
+        }
+
+        if (deliveryTimeSlot !== undefined) {
+            job.deliveryTimeSlot = String(
+                deliveryTimeSlot || ""
+            );
+        }
+
+        await job.save();
+
+        return res.json({
+            success: true,
+            message: "Job schedule updated successfully.",
+            data: job
+        });
+    } catch (err) {
+        console.error("Update job schedule error:", err);
+
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
     }
 };
 
@@ -484,6 +703,78 @@ const getJobHistory = async (req, res) => {
     }
 };
 
+const getCancelledJobs = async (req, res) => {
+    try {
+        const page = Math.max(
+            1,
+            Number(req.query.page) || 1
+        );
+
+        const limit = Math.max(
+            1,
+            Number(req.query.limit) || 10
+        );
+
+        const skip = (page - 1) * limit;
+
+        const filter = {
+            status: "cancelled"
+        };
+
+        // Filter using the job pickup/move date
+        if (req.query.from || req.query.to) {
+            filter.date = {};
+
+            if (req.query.from) {
+                filter.date.$gte = req.query.from;
+            }
+
+            if (req.query.to) {
+                filter.date.$lte = req.query.to;
+            }
+        }
+
+        const total = await Job.countDocuments(filter);
+
+        const jobs = await Job.find(filter)
+            .populate(
+                "assignedDriver",
+                "name phone"
+            )
+            .populate(
+                "assignedVehicle",
+                "regNumber makeModel"
+            )
+            .sort({
+                cancelledAt: -1,
+                updatedAt: -1
+            })
+            .skip(skip)
+            .limit(limit);
+
+        return res.json({
+            success: true,
+            data: jobs,
+            page,
+            total,
+            totalPages: Math.max(
+                1,
+                Math.ceil(total / limit)
+            )
+        });
+    } catch (err) {
+        console.error(
+            "Get Cancelled Jobs Error:",
+            err
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
 const getTrashJobs = async (req, res) => {
 
     try {
@@ -609,9 +900,20 @@ const deleteAllTrashJobs = async (req, res) => {
 };
 
 module.exports = {
-    createJobFromBooking, rejectBooking, getAllJobs, getJob, updateJobStatus, assignJob,
-    completeJobEmail, getAvailableResources, getJobHistory,
+    createJobFromBooking,
+    rejectBooking,
+    getAllJobs,
+    getJob,
+    updateJobStatus,
+    cancelJob,
+    moveJobToTrash,
+    updateJobSchedule,
+    assignJob,
+    completeJobEmail,
+    getAvailableResources,
+    getJobHistory,
+    getCancelledJobs,
     getTrashJobs,
     deleteTrashJob,
-    deleteAllTrashJobs,
+    deleteAllTrashJobs
 };
