@@ -42,8 +42,18 @@ const serviceMap = {
     pallets: "Pallets", packing: "Packing Service", packing_service: "Packing Service",
 };
 
-// ── POST /api/jobs/from-booking/:bookingId ─────────────────────────────────
-// Accept request → create job + send confirmation email to customer
+const timeSlotMap = {
+    early: "6:00 AM - 6:00 PM",
+    morning: "8:00 AM - 6:00 PM",
+    afternoon: "9:00 AM - 4:00 PM",
+    flexible: "Flexible Timing"
+};
+
+const formatTimeSlot = value => {
+    return timeSlotMap[value] || value || "TBC";
+};
+
+// ── POST /api/jobs/from-booking/:bookingId 
 const createJobFromBooking = async (req, res) => {
     try {
         const booking = await Booking.findById(req.params.bookingId);
@@ -69,10 +79,12 @@ const createJobFromBooking = async (req, res) => {
             dateType: booking.dateType,
             timeSlot: booking.timeSlot,
 
-            deliveryDate: "",
-            deliveryTimeSlot: "",
+            distance: Number(booking.distance) || 0,
 
-            distance: booking.distance,
+            estimatedDeliveryTime: String(
+                booking.estimatedDeliveryTime || ""
+            ).trim(),
+
             totalPrice: booking.totalPrice,
             specialInstructions: booking.specialInstructions,
 
@@ -146,8 +158,7 @@ const createJobFromBooking = async (req, res) => {
     }
 };
 
-// ── POST /api/jobs/reject-booking/:bookingId ───────────────────────────────
-// Reject request → send rejection email with reason
+// ── POST /api/jobs/reject-booking/:bookingId ──────────
 const rejectBooking = async (req, res) => {
     try {
         const { reason } = req.body;
@@ -314,7 +325,9 @@ const updateJobStatus = async (req, res) => {
 
 const cancelJob = async (req, res) => {
     try {
-        const reason = String(req.body.reason || "").trim();
+        const reason = String(
+            req.body.reason || ""
+        ).trim();
 
         if (reason.length < 5) {
             return res.status(400).json({
@@ -323,7 +336,9 @@ const cancelJob = async (req, res) => {
             });
         }
 
-        const job = await Job.findById(req.params.id);
+        const job = await Job.findById(
+            req.params.id
+        );
 
         if (!job) {
             return res.status(404).json({
@@ -332,14 +347,34 @@ const cancelJob = async (req, res) => {
             });
         }
 
-        if (!["active", "on_way"].includes(job.status)) {
+        if (
+            !["active", "on_way"].includes(
+                job.status
+            )
+        ) {
             return res.status(400).json({
                 success: false,
                 message: "Only active or on-way jobs can be cancelled."
             });
         }
 
+        const assignedDriver = job.assignedDriver
+            ? await Driver.findById(
+                job.assignedDriver
+            ).select("name phone")
+            : null;
+
+        const assignedVehicleLabel =
+            job.assignedVehicleReg ||
+            "Not assigned";
+
         await releaseJobResources(job);
+
+        job.assignedDriver = null;
+        job.assignedDriverName = "";
+
+        job.assignedVehicle = null;
+        job.assignedVehicleReg = "";
 
         job.status = "cancelled";
         job.cancelReason = reason;
@@ -360,19 +395,203 @@ const cancelJob = async (req, res) => {
             }
         );
 
+        if (assignedDriver?.phone) {
+            const cancellationMessage =
+                `Hello ${assignedDriver.name},\n\n` +
+                `⚠️ *JOB CANCELLED*\n\n` +
+                `The following assigned job has been cancelled:\n\n` +
+                `*Job Ref:* ${job.bookingRef}\n` +
+                `*Service:* ${serviceMap[job.serviceType] || job.serviceType}\n` +
+                `*Date:* ${job.dateType === "flexible"
+                    ? "Flexible"
+                    : job.date || "—"
+                }\n` +
+                `*Time Slot:* ${job.dateType === "flexible"
+                    ? "Flexible Timing"
+                    : formatTimeSlot(job.timeSlot)
+                }\n` +
+                `*Assigned Vehicle:* ${assignedVehicleLabel}\n\n` +
+                `*Cancellation Reason:*\n${reason}\n\n` +
+                `You are no longer assigned to this job.\n\n` +
+                `— Khan Moves`;
+
+            try {
+                await sendWhatsApp(
+                    assignedDriver.phone,
+                    cancellationMessage
+                );
+            } catch (whatsappError) {
+                console.error(
+                    "Driver cancellation WhatsApp failed:",
+                    whatsappError.message
+                );
+            }
+        }
+
+        if (job.customer?.email) {
+            const cancellationEmail = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+    </head>
+
+    <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f5">
+        <div style="max-width:600px;margin:0 auto;background:#ffffff">
+            <div style="height:5px;background:#C0392B"></div>
+
+            <div style="background:#C0392B;padding:24px 32px">
+                <div style="color:#ffffff;font-size:20px;font-weight:700">
+                    KHAN MOVES
+                </div>
+
+                <div style="margin-top:3px;color:#ffcccc;font-size:11px">
+                    Professional Removals UK
+                </div>
+            </div>
+
+            <div style="padding:28px 32px">
+                <div style="margin-bottom:24px;border:1px solid #fecaca;border-radius:8px;background:#fef2f2;padding:18px;text-align:center">
+                    <div style="margin-bottom:8px;font-size:28px">
+                        ⚠️
+                    </div>
+
+                    <div style="font-size:18px;font-weight:700;color:#b91c1c">
+                        Job Cancelled
+                    </div>
+                </div>
+
+                <h2 style="margin-bottom:8px;color:#1a1a1a;font-size:18px">
+                    Hello ${job.customer?.name || "Customer"},
+                </h2>
+
+                <p style="margin-bottom:20px;color:#555;font-size:13px;line-height:1.6">
+                    We regret to inform you that your booking with Khan Moves
+                    has been cancelled.
+                </p>
+
+                <div style="margin-bottom:20px;border-radius:8px;background:#f7f7f7;padding:16px 20px">
+                    <table style="width:100%;border-collapse:collapse">
+                        <tr>
+                            <td style="width:120px;padding-bottom:7px;color:#888;font-size:11px">
+                                Booking Ref
+                            </td>
+
+                            <td style="padding-bottom:7px;color:#1a1a1a;font-size:11px;font-weight:600">
+                                ${job.bookingRef}
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td style="padding-bottom:7px;color:#888;font-size:11px">
+                                Service
+                            </td>
+
+                            <td style="padding-bottom:7px;color:#1a1a1a;font-size:11px;font-weight:600">
+                                ${serviceMap[job.serviceType] || job.serviceType || "—"}
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td style="padding-bottom:7px;color:#888;font-size:11px">
+                                Move Date
+                            </td>
+
+                            <td style="padding-bottom:7px;color:#1a1a1a;font-size:11px;font-weight:600">
+                                ${job.dateType === "flexible"
+                    ? "Flexible"
+                    : job.date || "—"
+                }
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td style="padding-bottom:7px;color:#888;font-size:11px">
+                                Time Slot
+                            </td>
+
+                            <td style="padding-bottom:7px;color:#1a1a1a;font-size:11px;font-weight:600">
+                                ${job.dateType === "flexible"
+                    ? "Flexible Timing"
+                    : formatTimeSlot(job.timeSlot)
+                }
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td style="color:#888;font-size:11px">
+                                Route
+                            </td>
+
+                            <td style="color:#1a1a1a;font-size:11px;font-weight:600">
+                                ${job.pickup?.postcode || "—"}
+                                →
+                                ${job.delivery?.postcode || "—"}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div style="margin-bottom:20px;border:1px solid #fca5a5;border-radius:8px;background:#fff1f2;padding:16px 20px">
+                    <p style="margin:0 0 6px;color:#b91c1c;font-size:10px;font-weight:700;text-transform:uppercase">
+                        Cancellation Reason
+                    </p>
+
+                    <p style="margin:0;color:#333;font-size:13px;line-height:1.6">
+                        ${reason}
+                    </p>
+                </div>
+
+                <p style="color:#555;font-size:13px;line-height:1.6">
+                    We apologise for any inconvenience. For assistance,
+                    contact us at
+                    <a
+                        href="mailto:khanmovesuk@gmail.com"
+                        style="color:#C0392B"
+                    >
+                        khanmovesuk@gmail.com
+                    </a>
+                    or call <strong>07424 153126</strong>.
+                </p>
+            </div>
+
+            <div style="height:4px;background:#C0392B"></div>
+        </div>
+    </body>
+    </html>
+    `;
+
+            try {
+                await sendEmail(
+                    job.customer.email,
+                    `Job Cancelled - ${job.bookingRef}`,
+                    cancellationEmail
+                );
+            } catch (emailError) {
+                console.error(
+                    "Customer cancellation email failed:",
+                    emailError.message
+                );
+            }
+        }
+
         return res.json({
             success: true,
-            message: "Job cancelled successfully.",
+            message: "Job cancelled and notifications sent successfully.",
             data: job
         });
     } catch (err) {
+        console.error(
+            "Cancel job error:",
+            err
+        );
+
         return res.status(500).json({
             success: false,
             message: err.message
         });
     }
 };
-
 const moveJobToTrash = async (req, res) => {
     try {
         const job = await Job.findById(req.params.id);
@@ -414,17 +633,24 @@ const moveJobToTrash = async (req, res) => {
     }
 };
 
-const updateJobSchedule = async (req, res) => {
+// Assign driver + vehicle, send WhatsApp to driver with locations
+const assignJob = async (req, res) => {
     try {
         const {
-            date,
-            dateType,
-            timeSlot,
-            deliveryDate,
-            deliveryTimeSlot
+            driverId,
+            vehicleId
         } = req.body;
 
-        const job = await Job.findById(req.params.id);
+        if (!driverId && !vehicleId) {
+            return res.status(400).json({
+                success: false,
+                message: "Please select a driver or vehicle."
+            });
+        }
+
+        const job = await Job.findById(
+            req.params.id
+        );
 
         if (!job) {
             return res.status(404).json({
@@ -433,47 +659,238 @@ const updateJobSchedule = async (req, res) => {
             });
         }
 
-        if (
-            dateType !== undefined &&
-            !["specific", "flexible"].includes(dateType)
-        ) {
+        if (job.status !== "active") {
             return res.status(400).json({
                 success: false,
-                message: "Invalid date type."
+                message: "Resources can only be assigned to active jobs."
             });
         }
 
-        if (dateType !== undefined) {
-            job.dateType = dateType;
+        const previousDriverId =
+            job.assignedDriver?.toString() || "";
+
+        const previousVehicleId =
+            job.assignedVehicle?.toString() || "";
+
+        let driver = null;
+        let vehicle = null;
+
+        if (driverId) {
+            driver = await Driver.findById(
+                driverId
+            );
+
+            if (!driver) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Driver not found."
+                });
+            }
+        } else if (job.assignedDriver) {
+            driver = await Driver.findById(
+                job.assignedDriver
+            );
         }
 
-        if (date !== undefined) {
-            job.date = String(date || "");
+        if (vehicleId) {
+            vehicle = await Vehicle.findById(
+                vehicleId
+            );
+
+            if (!vehicle) {
+                return res.status(404).json({
+                    success: false,
+                    message: "Vehicle not found."
+                });
+            }
+        } else if (job.assignedVehicle) {
+            vehicle = await Vehicle.findById(
+                job.assignedVehicle
+            );
         }
 
-        if (timeSlot !== undefined) {
-            job.timeSlot = String(timeSlot || "");
+        if (
+            driverId &&
+            previousDriverId &&
+            previousDriverId !==
+            String(driverId)
+        ) {
+            await Driver.findByIdAndUpdate(
+                previousDriverId,
+                {
+                    assignedNow: "None"
+                }
+            );
         }
 
-        if (deliveryDate !== undefined) {
-            job.deliveryDate = String(deliveryDate || "");
+        if (
+            vehicleId &&
+            previousVehicleId &&
+            previousVehicleId !==
+            String(vehicleId)
+        ) {
+            await Vehicle.findByIdAndUpdate(
+                previousVehicleId,
+                {
+                    assignedDriver: ""
+                }
+            );
         }
 
-        if (deliveryTimeSlot !== undefined) {
-            job.deliveryTimeSlot = String(
-                deliveryTimeSlot || ""
+        if (driverId && driver) {
+            job.assignedDriver =
+                driver._id;
+
+            job.assignedDriverName =
+                driver.name;
+
+            await Driver.findByIdAndUpdate(
+                driver._id,
+                {
+                    assignedNow:
+                        job.bookingRef
+                }
+            );
+        }
+
+        if (vehicleId && vehicle) {
+            job.assignedVehicle =
+                vehicle._id;
+
+            job.assignedVehicleReg =
+                vehicle.regNumber;
+        }
+
+        if (vehicle?._id) {
+            await Vehicle.findByIdAndUpdate(
+                vehicle._id,
+                {
+                    assignedDriver:
+                        driver?.name ||
+                        job.assignedDriverName ||
+                        ""
+                }
             );
         }
 
         await job.save();
 
+        if (driver?.phone) {
+            const getDirectionsLink = location => {
+                const destination =
+                    location?.lat &&
+                        location?.lng
+                        ? `${location.lat},${location.lng}`
+                        : `${location?.address || ""} ${location?.postcode || ""}`.trim();
+
+                return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(
+                    destination
+                )}&travelmode=driving&dir_action=navigate`;
+            };
+
+            const pickupMapsLink =
+                getDirectionsLink(
+                    job.pickup
+                );
+
+            const deliveryMapsLink =
+                getDirectionsLink(
+                    job.delivery
+                );
+
+            const assignedVehicleLabel =
+                vehicle
+                    ? `${vehicle.regNumber}${vehicle.makeModel
+                        ? ` - ${vehicle.makeModel}`
+                        : ""
+                    }`
+                    : job.assignedVehicleReg ||
+                    "Not assigned";
+
+            const message =
+                `Hello ${driver.name},\n\n` +
+                `You have been assigned a new job!\n\n` +
+                `*Job Ref:* ${job.bookingRef}\n` +
+                `*Service:* ${serviceMap[job.serviceType] || job.serviceType}\n` +
+                `*Date:* ${job.dateType === "flexible"
+                    ? "Flexible"
+                    : job.date || "—"
+                }\n` +
+                `*Time Slot:* ${job.dateType === "flexible"
+                    ? "Flexible Timing"
+                    : formatTimeSlot(
+                        job.timeSlot
+                    )
+                }\n` +
+                `*Assigned Vehicle:* ${assignedVehicleLabel}\n\n` +
+
+                `*CUSTOMER CONTACT:*\n` +
+                `Name: ${job.customer?.name || "—"}\n` +
+                `Phone: ${job.customer?.phone || "—"}\n` +
+                (
+                    job.customer?.whatsapp
+                        ? `WhatsApp: ${job.customer.whatsapp}\n`
+                        : ""
+                ) +
+
+                `\n*PICKUP LOCATION:*\n` +
+                `${job.pickup?.address || "—"}, ${job.pickup?.postcode || ""}\n` +
+                `Floor: ${job.pickupFloor?.floorLevel || "Ground"} | ` +
+                `Lift: ${job.pickupFloor?.hasLift ? "Yes" : "No"} | ` +
+                `Parking: ${job.pickupFloor?.hasParking ? "Yes" : "No"}\n` +
+                `Directions: ${pickupMapsLink}\n\n` +
+
+                `*DELIVERY LOCATION:*\n` +
+                `${job.delivery?.address || "—"}, ${job.delivery?.postcode || ""}\n` +
+                `Floor: ${job.deliveryFloor?.floorLevel || "Ground"} | ` +
+                `Lift: ${job.deliveryFloor?.hasLift ? "Yes" : "No"} | ` +
+                `Parking: ${job.deliveryFloor?.hasParking ? "Yes" : "No"}\n` +
+                `Directions: ${deliveryMapsLink}\n\n` +
+
+                `*Distance:* ${job.distance || 0} miles\n` +
+                `*Estimated Delivery Time:* ${job.estimatedDeliveryTime ||
+                "To be arranged"
+                }\n\n` +
+
+                (
+                    job.specialInstructions
+                        ? `*Special Instructions:* ${job.specialInstructions}\n\n`
+                        : ""
+                ) +
+
+                `Please be on time.\n\n` +
+                `*Please reply CONFIRM when you start the job.*\n` +
+                `— Khan Moves`;
+
+            await sendWhatsApp(
+                driver.phone,
+                message
+            );
+        }
+
+        const updatedJob =
+            await Job.findById(job._id)
+                .populate(
+                    "assignedDriver",
+                    "name phone"
+                )
+                .populate(
+                    "assignedVehicle",
+                    "regNumber makeModel"
+                );
+
         return res.json({
             success: true,
-            message: "Job schedule updated successfully.",
-            data: job
+            message: driver?.phone
+                ? "Resources assigned and driver notified."
+                : "Resources assigned successfully.",
+            data: updatedJob
         });
     } catch (err) {
-        console.error("Update job schedule error:", err);
+        console.error(
+            "Assign job error:",
+            err
+        );
 
         return res.status(500).json({
             success: false,
@@ -482,93 +899,7 @@ const updateJobSchedule = async (req, res) => {
     }
 };
 
-// Assign driver + vehicle, send WhatsApp to driver with locations
-const assignJob = async (req, res) => {
-    try {
-        const { driverId, vehicleId } = req.body;
-        const job = await Job.findById(req.params.id);
-        if (!job) return res.status(404).json({ success: false, message: "Job not found." });
-
-        let driverName = job.assignedDriverName;
-        let vehicleReg = job.assignedVehicleReg;
-
-        if (driverId) {
-            const driver = await Driver.findById(driverId);
-            if (!driver) return res.status(404).json({ success: false, message: "Driver not found." });
-            job.assignedDriver = driver._id;
-            job.assignedDriverName = driver.name;
-            driverName = driver.name;
-
-            // Update driver's current job
-            await Driver.findByIdAndUpdate(driverId, { assignedNow: job.bookingRef });
-
-            // Send WhatsApp to driver with job details + locations
-            if (driver.phone) {
-                const getDirectionsLink = location => {
-                    const destination =
-                        location?.lat && location?.lng
-                            ? `${location.lat},${location.lng}`
-                            : `${location?.address || ""} ${location?.postcode || ""}`.trim();
-
-                    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving&dir_action=navigate`;
-                };
-
-                const pickupMapsLink = getDirectionsLink(job.pickup);
-                const deliveryMapsLink = getDirectionsLink(job.delivery);
-
-                const message =
-                    `Hello ${driver.name},\n\nYou have been assigned a new job!\n\n` +
-                    `*Job Ref:* ${job.bookingRef}\n` +
-                    `*Service:* ${serviceMap[job.serviceType] || job.serviceType}\n` +
-                    `*Date:* ${job.dateType === "flexible" ? "Flexible" : job.date || "—"}\n` +
-                    `*Time Slot:* ${job.timeSlot || "TBC"}\n\n` +
-                    `*CUSTOMER CONTACT:*\n` +
-                    `Name: ${job.customer?.name || "—"}\n` +
-                    `Phone: ${job.customer?.phone || "—"}\n` +
-                    (job.customer?.whatsapp
-                        ? `WhatsApp: ${job.customer.whatsapp}\n`
-                        : "") +
-                    `\n*PICKUP LOCATION:*\n` +
-                    `${job.pickup?.address || "—"}, ${job.pickup?.postcode || ""}\n` +
-                    `Floor: ${job.pickupFloor?.floorLevel || "Ground"} | Lift: ${job.pickupFloor?.hasLift ? "Yes" : "No"} | Parking: ${job.pickupFloor?.hasParking ? "Yes" : "No"}\n` +
-                    `Directions: ${pickupMapsLink}\n\n` +
-                    `*DELIVERY LOCATION:*\n` +
-                    `${job.delivery?.address || "—"}, ${job.delivery?.postcode || ""}\n` +
-                    `Floor: ${job.deliveryFloor?.floorLevel || "Ground"} | Lift: ${job.deliveryFloor?.hasLift ? "Yes" : "No"} | Parking: ${job.deliveryFloor?.hasParking ? "Yes" : "No"}\n` +
-                    `Directions: ${deliveryMapsLink}\n\n` +
-                    `*Distance:* ${job.distance || 0} miles\n\n` +
-                    (job.specialInstructions
-                        ? `*Special Instructions:* ${job.specialInstructions}\n\n`
-                        : "") +
-                    `Please be on time.\n\n` +
-                    `*Please reply CONFIRM when you start the job.*\n` +
-                    `— Khan Moves`;
-
-                await sendWhatsApp(driver.phone, message);
-            }
-        }
-
-        if (vehicleId) {
-            const vehicle = await Vehicle.findById(vehicleId);
-            if (!vehicle) return res.status(404).json({ success: false, message: "Vehicle not found." });
-            job.assignedVehicle = vehicle._id;
-            job.assignedVehicleReg = vehicle.regNumber;
-            vehicleReg = vehicle.regNumber;
-
-            // Update vehicle's assigned driver
-            if (driverName) {
-                await Vehicle.findByIdAndUpdate(vehicleId, { assignedDriver: driverName });
-            }
-        }
-
-        await job.save();
-        res.json({ success: true, data: job });
-    } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
-    }
-};
-
-// ── POST /api/jobs/:id/complete-email ──────────────────────────────────────
+// ── POST /api/jobs/:id/complete-email ────────
 const completeJobEmail = async (req, res) => {
     try {
         const job = await Job.findById(req.params.id);
@@ -907,7 +1238,6 @@ module.exports = {
     updateJobStatus,
     cancelJob,
     moveJobToTrash,
-    updateJobSchedule,
     assignJob,
     completeJobEmail,
     getAvailableResources,

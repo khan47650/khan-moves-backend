@@ -8,7 +8,6 @@ const {
     updateJobStatus,
     cancelJob,
     moveJobToTrash,
-    updateJobSchedule,
     assignJob,
     completeJobEmail,
     getAvailableResources,
@@ -35,7 +34,6 @@ router.get("/:id", getJob);
 router.patch("/:id/status", updateJobStatus);
 router.patch("/:id/cancel", cancelJob);
 router.patch("/:id/trash", moveJobToTrash);
-router.patch("/:id/schedule", updateJobSchedule);
 router.patch("/:id/assign", assignJob);
 router.post("/:id/complete-email", completeJobEmail);
 

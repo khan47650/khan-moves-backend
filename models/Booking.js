@@ -208,6 +208,12 @@ const bookingSchema = new mongoose.Schema({
         min: 0
     },
 
+    estimatedDeliveryTime: {
+        type: String,
+        default: "",
+        trim: true
+    },
+
     totalPrice: {
         type: Number,
         required: true,

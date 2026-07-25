@@ -174,6 +174,9 @@ const createBooking = async (req, res) => {
             packingService: Boolean(body.packingService),
             specialInstructions,
             distance: pricingData.distance,
+            estimatedDeliveryTime: String(
+                body.estimatedDeliveryTime || ""
+            ).trim(),
             totalPrice,
             priceBreakdown: breakdown,
             customer: body.customer || {},
@@ -417,6 +420,13 @@ const updateBooking = async (req, res) => {
                     : booking.timeSlot
         };
 
+        const estimatedDeliveryTime =
+            body.estimatedDeliveryTime !== undefined
+                ? String(
+                    body.estimatedDeliveryTime || ""
+                ).trim()
+                : booking.estimatedDeliveryTime || "";
+
         const totalPrice = calculateTotalPrice(pricingData);
         const { breakdown } = getPriceBreakdown(pricingData);
 
@@ -429,6 +439,9 @@ const updateBooking = async (req, res) => {
         booking.items = items;
         booking.totalVolume = totalVolume;
         booking.distance = pricingData.distance;
+        booking.estimatedDeliveryTime =
+            estimatedDeliveryTime;
+
         booking.dateType = pricingData.dateType;
         booking.date = pricingData.date;
         booking.timeSlot = pricingData.timeSlot;

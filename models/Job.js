@@ -184,20 +184,15 @@ const jobSchema = new mongoose.Schema(
             default: ""
         },
 
-        // Delivery schedule controlled by admin
-        deliveryDate: {
-            type: String,
-            default: ""
-        },
-
-        deliveryTimeSlot: {
-            type: String,
-            default: ""
-        },
-
         distance: {
             type: Number,
             default: 0
+        },
+
+        estimatedDeliveryTime: {
+            type: String,
+            default: "",
+            trim: true
         },
 
         totalPrice: {
