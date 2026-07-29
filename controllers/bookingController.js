@@ -2,8 +2,7 @@ const Booking = require("../models/Booking");
 const Counter = require("../models/Counter");
 const sendEmail = require("../utils/sendEmail");
 const {
-    calculateTotalPrice,
-    getPriceBreakdown
+    calculatePricing
 } = require("../utils/bookingPriceCalculator");
 const { sendWhatsApp, sendWhatsAppDocument } = require("../utils/sendWhatsApp");
 
@@ -148,38 +147,119 @@ const createBooking = async (req, res) => {
             timeSlot: body.timeSlot || ""
         };
 
-        const totalPrice = calculateTotalPrice(pricingData);
-        const { breakdown } = getPriceBreakdown(pricingData);
+        const pricingResult =
+            calculatePricing(pricingData);
 
-        const reference = await generateBookingReference();
+        if (
+            pricingResult
+                .requiresContactSupport
+        ) {
+            return res.status(422).json({
+                success: false,
+                code:
+                    "CONTACT_SUPPORT_REQUIRED",
+                message:
+                    pricingResult.note ||
+                    "Due to the size and distance of this move, please contact customer support for a confirmed quote.",
+                pricing: {
+                    total: null,
+                    tripsNeeded:
+                        pricingResult
+                            .tripsNeeded,
+                    pricingStatus:
+                        pricingResult
+                            .pricingStatus
+                }
+            });
+        }
+
+        const totalPrice =
+            pricingResult.total;
+
+        const breakdown =
+            pricingResult.breakdown;
+
+        const reference =
+            await generateBookingReference();
 
         const booking = await Booking.create({
-            bookingRef: reference.bookingRef,
-            bookingSequence: reference.bookingSequence,
-            serviceType: body.serviceType,
-            pickup: body.pickup || {},
-            delivery: body.delivery || {},
-            pickupFloor: body.pickupFloor || {},
-            deliveryFloor: body.deliveryFloor || {},
+            bookingRef:
+                reference.bookingRef,
+
+            bookingSequence:
+                reference.bookingSequence,
+
+            serviceType:
+                body.serviceType,
+
+            pickup:
+                body.pickup || {},
+
+            delivery:
+                body.delivery || {},
+
+            pickupFloor:
+                body.pickupFloor || {},
+
+            deliveryFloor:
+                body.deliveryFloor || {},
+
             items,
             totalVolume,
-            dateType: body.dateType || "specific",
-            date: body.date || "",
-            timeSlot: body.timeSlot || "",
+
+            dateType:
+                body.dateType ||
+                "specific",
+
+            date:
+                body.date || "",
+
+            timeSlot:
+                body.timeSlot || "",
+
             helperCount,
+
             dismantleItems,
             assemblyItems,
             dismantleCount,
             assemblyCount,
-            packingService: Boolean(body.packingService),
+
+            packingService:
+                Boolean(
+                    body.packingService
+                ),
+
             specialInstructions,
-            distance: pricingData.distance,
-            estimatedDeliveryTime: String(
-                body.estimatedDeliveryTime || ""
-            ).trim(),
+
+            distance:
+                pricingData.distance,
+
+            estimatedDeliveryTime:
+                String(
+                    body.estimatedDeliveryTime ||
+                    ""
+                ).trim(),
+
             totalPrice,
-            priceBreakdown: breakdown,
-            customer: body.customer || {},
+
+            priceBreakdown:
+                breakdown,
+
+            tripsNeeded:
+                pricingResult.tripsNeeded,
+
+            multiTrip:
+                pricingResult.multiTrip,
+
+            pricingStatus:
+                pricingResult.pricingStatus,
+
+            pricingNote:
+                pricingResult.note || "",
+
+            customer:
+                body.customer || {},
+
             status: "pending"
         });
 
@@ -427,8 +507,37 @@ const updateBooking = async (req, res) => {
                 ).trim()
                 : booking.estimatedDeliveryTime || "";
 
-        const totalPrice = calculateTotalPrice(pricingData);
-        const { breakdown } = getPriceBreakdown(pricingData);
+        const pricingResult =
+            calculatePricing(pricingData);
+
+        if (
+            pricingResult
+                .requiresContactSupport
+        ) {
+            return res.status(422).json({
+                success: false,
+                code:
+                    "CONTACT_SUPPORT_REQUIRED",
+                message:
+                    pricingResult.note ||
+                    "Due to the size and distance of this move, please contact customer support for a confirmed quote.",
+                pricing: {
+                    total: null,
+                    tripsNeeded:
+                        pricingResult
+                            .tripsNeeded,
+                    pricingStatus:
+                        pricingResult
+                            .pricingStatus
+                }
+            });
+        }
+
+        const totalPrice =
+            pricingResult.total;
+
+        const breakdown =
+            pricingResult.breakdown;
 
         booking.serviceType =
             body.serviceType || booking.serviceType;
@@ -452,8 +561,23 @@ const updateBooking = async (req, res) => {
         booking.assemblyCount = assemblyCount;
         booking.packingService = pricingData.packingService;
         booking.specialInstructions = specialInstructions;
-        booking.totalPrice = totalPrice;
-        booking.priceBreakdown = breakdown;
+        booking.totalPrice =
+            totalPrice;
+
+        booking.priceBreakdown =
+            breakdown;
+
+        booking.tripsNeeded =
+            pricingResult.tripsNeeded;
+
+        booking.multiTrip =
+            pricingResult.multiTrip;
+
+        booking.pricingStatus =
+            pricingResult.pricingStatus;
+
+        booking.pricingNote =
+            pricingResult.note || "";
 
         if (body.customer) {
             booking.customer = {
@@ -538,14 +662,11 @@ const updateBookingPrice = async (req, res) => {
             });
         }
 
-        booking.totalPrice =
-            Math.round(finalPrice * 100) / 100;
+        booking.totalPrice = Math.round(finalPrice);
 
-        booking.discount =
-            Math.round(discount * 100) / 100;
+        booking.discount = Math.round(discount);
 
-        booking.tax =
-            Math.round(tax * 100) / 100;
+        booking.tax = Math.round(tax);
 
         booking.invoiceNotes = invoiceNotes;
 

@@ -231,9 +231,44 @@ const bookingSchema = new mongoose.Schema({
     },
 
     priceBreakdown: [{
-        label: { type: String, default: "" },
-        amount: { type: Number, default: 0 }
+        label: {
+            type: String,
+            default: "",
+            trim: true
+        },
+
+        amount: {
+            type: Number,
+            default: 0
+        }
     }],
+
+    tripsNeeded: {
+        type: Number,
+        default: 1,
+        min: 1
+    },
+
+    multiTrip: {
+        type: Boolean,
+        default: false
+    },
+
+    pricingStatus: {
+        type: String,
+        enum: [
+            "calculated",
+            "contact_support"
+        ],
+        default: "calculated"
+    },
+
+    pricingNote: {
+        type: String,
+        default: "",
+        trim: true,
+        maxlength: 500
+    },
 
     customer: {
         name: { type: String, default: "" },

@@ -1,286 +1,918 @@
-const roundMoney = value => Math.round((value + Number.EPSILON) * 100) / 100;
+/**
+ * Khan Moves — Backend Price Calculator
+ * Must remain identical to frontend priceCalculator.js
+ */
 
-const getCrewSize = helperCount => Number(helperCount) > 0 ? 2 : 1;
+const PRICING_CONFIG = {
+    1: {
+        BASE: 13.85,
+        VOLUME_COEF: 7.1,
+        VOLUME_POWER: 1.3,
 
-const getBaseFee = helperCount => {
-    return getCrewSize(helperCount) === 2 ? 54 : 30;
+        MILE_0_50: 0.9135,
+        MILE_50_90: 0.2687,
+        MILE_90_PLUS: 0.7257,
+
+        INTERACTION: 0.0491,
+        MIN_PRICE: 36,
+
+        FLOOR_SURCHARGE_PER_FLOOR: 35,
+        FLOOR_SURCHARGE_WITH_LIFT: 30
+    },
+
+    2: {
+        BASE: 16.71,
+        VOLUME_COEF: 11.76,
+        VOLUME_POWER: 1.21,
+
+        MILE_0_50: 1.1097,
+        MILE_50_90: 0.4219,
+        MILE_90_PLUS: 0.8501,
+
+        INTERACTION: 0.0642,
+        MIN_PRICE: 60,
+
+        FLOOR_SURCHARGE_PER_FLOOR: 80.73,
+        FLOOR_SURCHARGE_WITH_LIFT: 68.28
+    },
+
+    SINGLE_TRIP_MAX_M3: 18,
+    LOCAL_MULTI_TRIP_MAX_MILES: 15,
+    EXTRA_TRIP_FEE: 30
 };
 
-const getDistanceCharge = (distanceMiles, helperCount) => {
-    const distance = Math.max(0, Number(distanceMiles) || 0);
+const DAY_IN_MS =
+    24 * 60 * 60 * 1000;
 
-    if (distance <= 10) return 0;
+const CONTACT_SUPPORT_MESSAGE =
+    "Due to the size and distance of this move, please contact customer support for a confirmed quote.";
 
-    const twoPersonCrew = getCrewSize(helperCount) === 2;
-    const standardRate = twoPersonCrew ? 0.78 : 0.62;
-    const longDistanceRate = twoPersonCrew ? 0.38 : 0.31;
+const roundMoney = value => Math.round(Number(value) || 0);
 
-    const milesFrom11To44 = Math.min(Math.max(distance - 10, 0), 34);
-    const milesFrom45 = Math.max(distance - 44, 0);
+const numberValue = value =>
+    Number(value || 0);
+
+const positiveNumber = value =>
+    Math.max(
+        0,
+        numberValue(value)
+    );
+
+const getCrewSize = helperCount =>
+    numberValue(helperCount) > 0
+        ? 2
+        : 1;
+
+const getMileageCharge = (
+    distanceMiles,
+    config
+) => {
+    const distance =
+        positiveNumber(
+            distanceMiles
+        );
+
+    const first50Miles =
+        Math.min(
+            distance,
+            50
+        );
+
+    const milesFrom50To90 =
+        Math.min(
+            Math.max(
+                distance - 50,
+                0
+            ),
+            40
+        );
+
+    const milesAbove90 =
+        Math.max(
+            distance - 90,
+            0
+        );
 
     return (
-        milesFrom11To44 * standardRate +
-        milesFrom45 * longDistanceRate
+        first50Miles *
+        config.MILE_0_50 +
+        milesFrom50To90 *
+        config.MILE_50_90 +
+        milesAbove90 *
+        config.MILE_90_PLUS
     );
 };
 
-const getVolumeCharge = volumeM3 => {
-    const volume = Math.max(0, Number(volumeM3) || 0);
+const getVolumeCharge = (
+    volumeM3,
+    config
+) => {
+    const volume =
+        positiveNumber(
+            volumeM3
+        );
 
-    if (volume === 0) return 0;
-
-    const units = Math.ceil(volume * 10);
-    let charge = 0;
-
-    const tier1Units = Math.min(units, 30);
-    charge += tier1Units * 0.70;
-
-    if (units > 30) {
-        const tier2Units = Math.min(units - 30, 40);
-        charge += tier2Units * 0.90;
+    if (volume === 0) {
+        return 0;
     }
 
-    if (units > 70) {
-        const tier3Units = Math.min(units - 70, 50);
-        charge += tier3Units * 1.10;
-    }
-
-    if (units > 120) {
-        const tier4Units = units - 120;
-        charge += tier4Units * 1.40;
-    }
-
-    return charge;
+    return (
+        config.VOLUME_COEF *
+        Math.pow(
+            volume,
+            config.VOLUME_POWER
+        )
+    );
 };
 
-const getFloorCharge = (floorLevel, hasLift, volumeM3) => {
-    const volume = Math.max(0, Number(volumeM3) || 0);
+const getFloorNumber =
+    floorLevel => {
+        return (
+            {
+                ground: 0,
+                basement: 1,
+                "1st": 1,
+                "2nd": 2,
+                "3rd": 3,
+                "4th+": 4
+            }[floorLevel] || 0
+        );
+    };
 
-    if (!floorLevel || floorLevel === "ground") return 0;
+const getFloorCharge = (
+    floorLevel,
+    hasLift,
+    config
+) => {
+    const floors =
+        getFloorNumber(
+            floorLevel
+        );
 
-    if (floorLevel === "basement") {
-        return 5 * volume;
+    if (floors === 0) {
+        return 0;
     }
 
-    const floorNumber = {
-        "1st": 1,
-        "2nd": 2,
-        "3rd": 3,
-        "4th+": 4
-    }[floorLevel] || 0;
+    if (hasLift) {
+        return config
+            .FLOOR_SURCHARGE_WITH_LIFT;
+    }
 
-    if (!floorNumber) return 0;
-
-    return (hasLift ? 2 : 5) * floorNumber * volume;
+    return (
+        config
+            .FLOOR_SURCHARGE_PER_FLOOR *
+        floors
+    );
 };
 
-const getParkingCharge = hasParking => {
-    return hasParking ? 0 : 30;
-};
+const getParkingCharge = (
+    hasParking,
+    volumeM3
+) => {
+    if (hasParking !== false) {
+        return 0;
+    }
 
-const getDaySurchargeRate = date => {
-    if (!date) return 0;
+    const volume =
+        positiveNumber(
+            volumeM3
+        );
 
-    const day = new Date(`${date}T12:00:00`).getDay();
+    if (volume >= 6) {
+        return 50;
+    }
 
-    if (day === 5) return 0.05;
-    if (day === 6) return 0.10;
-    if (day === 0) return 0.15;
+    if (volume >= 2) {
+        return 20;
+    }
 
     return 0;
 };
 
-const calculateSubtotal = data => {
-    const volume = Math.max(
-        0,
-        Number(data.volume ?? data.totalVolume) || 0
-    );
-    const helperCount = Number(data.helperCount) > 0 ? 1 : 0;
+const getTimeSlotCharge =
+    timeSlot => {
+        if (
+            timeSlot ===
+            "afternoon"
+        ) {
+            return 20;
+        }
 
-    const charges = {
-        baseFee: getBaseFee(helperCount),
-        distanceCharge: getDistanceCharge(data.distance, helperCount),
-        volumeCharge: getVolumeCharge(volume),
-        pickupFloorCharge: getFloorCharge(
-            data.pickupFloor?.floorLevel,
-            data.pickupFloor?.hasLift,
-            volume
-        ),
-        deliveryFloorCharge: getFloorCharge(
-            data.deliveryFloor?.floorLevel,
-            data.deliveryFloor?.hasLift,
-            volume
-        ),
-        pickupParkingCharge: getParkingCharge(
-            data.pickupFloor?.hasParking ?? true
-        ),
-        deliveryParkingCharge: getParkingCharge(
-            data.deliveryFloor?.hasParking ?? true
-        ),
-        dismantleCharge:
-            Math.max(0, Number(data.dismantleCount) || 0) * 20,
-        assemblyCharge:
-            Math.max(0, Number(data.assemblyCount) || 0) * 30,
-        packingCharge: data.packingService ? 49 : 0,
-        timeSlotCharge: data.timeSlot === "afternoon" ? 10 : 0
+        if (
+            [
+                "nine_to_five",
+                "nineToFive",
+                "9_to_5",
+                "9-5"
+            ].includes(timeSlot)
+        ) {
+            return 15;
+        }
+
+        return 0;
     };
 
-    charges.subtotal = Object.values(charges).reduce(
-        (sum, amount) => sum + amount,
-        0
-    );
+const getTimeSlotLabel =
+    timeSlot => {
+        if (
+            timeSlot ===
+            "afternoon"
+        ) {
+            return "Afternoon time slot";
+        }
 
-    return charges;
+        if (
+            [
+                "nine_to_five",
+                "nineToFive",
+                "9_to_5",
+                "9-5"
+            ].includes(timeSlot)
+        ) {
+            return "9:00 AM - 5:00 PM time slot";
+        }
+
+        return "Time slot";
+    };
+
+const getUKTodayDate = () => {
+    const parts =
+        new Intl.DateTimeFormat(
+            "en-GB",
+            {
+                timeZone:
+                    "Europe/London",
+
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit"
+            }
+        ).formatToParts(
+            new Date()
+        );
+
+    const getPart = type =>
+        parts.find(
+            part =>
+                part.type === type
+        )?.value || "";
+
+    return `${getPart(
+        "year"
+    )}-${getPart(
+        "month"
+    )}-${getPart("day")}`;
 };
 
-const calculateTotalPrice = data => {
-    const charges = calculateSubtotal(data);
-    let total = charges.subtotal;
-
-    if (data.dateType === "specific" && data.date) {
-        total += total * getDaySurchargeRate(data.date);
+const parseDateOnly = value => {
+    if (
+        !/^\d{4}-\d{2}-\d{2}$/.test(
+            String(value || "")
+        )
+    ) {
+        return null;
     }
 
-    if (data.dateType === "flexible") {
-        total *= 0.8;
-    }
+    const [
+        year,
+        month,
+        day
+    ] = value
+        .split("-")
+        .map(Number);
 
-    return Math.round(total);
+    return Date.UTC(
+        year,
+        month - 1,
+        day
+    );
 };
 
-const getPriceBreakdown = data => {
-    const volume = Math.max(
-        0,
-        Number(data.volume ?? data.totalVolume) || 0
-    );
-    const helperCount = Number(data.helperCount) > 0 ? 1 : 0;
-    const crewSize = getCrewSize(helperCount);
-    const charges = calculateSubtotal(data);
+const getDateSurcharge =
+    date => {
+        const selectedDate =
+            parseDateOnly(date);
 
-    const breakdown = [
-        {
-            label: `Base fee (${crewSize}-person crew)`,
-            amount: roundMoney(charges.baseFee)
+        const today =
+            parseDateOnly(
+                getUKTodayDate()
+            );
+
+        if (
+            selectedDate === null ||
+            today === null
+        ) {
+            return {
+                rate: 0,
+                label: ""
+            };
         }
-    ];
 
-    if (charges.distanceCharge > 0) {
-        breakdown.push({
-            label: `Mileage (${Number(data.distance) || 0} mi, first 10 mi included)`,
-            amount: roundMoney(charges.distanceCharge)
-        });
-    }
+        const daysAhead =
+            Math.round(
+                (
+                    selectedDate -
+                    today
+                ) /
+                DAY_IN_MS
+            );
 
-    if (charges.volumeCharge > 0) {
-        breakdown.push({
-            label: `Items volume (${volume.toFixed(1)} m³)`,
-            amount: roundMoney(charges.volumeCharge)
-        });
-    }
-
-    if (charges.pickupFloorCharge > 0) {
-        breakdown.push({
-            label: `Pickup floor (${data.pickupFloor?.floorLevel}${data.pickupFloor?.hasLift ? " + lift" : ""
-                })`,
-            amount: roundMoney(charges.pickupFloorCharge)
-        });
-    }
-
-    if (charges.deliveryFloorCharge > 0) {
-        breakdown.push({
-            label: `Delivery floor (${data.deliveryFloor?.floorLevel}${data.deliveryFloor?.hasLift ? " + lift" : ""
-                })`,
-            amount: roundMoney(charges.deliveryFloorCharge)
-        });
-    }
-
-    if (charges.pickupParkingCharge > 0) {
-        breakdown.push({
-            label: "No parking — pickup",
-            amount: 30
-        });
-    }
-
-    if (charges.deliveryParkingCharge > 0) {
-        breakdown.push({
-            label: "No parking — delivery",
-            amount: 30
-        });
-    }
-
-    if (charges.dismantleCharge > 0) {
-        breakdown.push({
-            label: `Dismantling ×${data.dismantleCount}`,
-            amount: charges.dismantleCharge
-        });
-    }
-
-    if (charges.assemblyCharge > 0) {
-        breakdown.push({
-            label: `Assembly ×${data.assemblyCount}`,
-            amount: charges.assemblyCharge
-        });
-    }
-
-    if (charges.packingCharge > 0) {
-        breakdown.push({
-            label: "Packing service",
-            amount: charges.packingCharge
-        });
-    }
-
-    if (charges.timeSlotCharge > 0) {
-        breakdown.push({
-            label: "Afternoon time slot",
-            amount: charges.timeSlotCharge
-        });
-    }
-
-    let runningTotal = charges.subtotal;
-
-    if (data.dateType === "specific" && data.date) {
-        const rate = getDaySurchargeRate(data.date);
-
-        if (rate > 0) {
-            const surcharge = roundMoney(runningTotal * rate);
-            const dayName = new Date(
-                `${data.date}T12:00:00`
-            ).toLocaleDateString("en-GB", {
-                weekday: "long"
-            });
-
-            breakdown.push({
-                label: `${dayName} surcharge (${rate * 100}%)`,
-                amount: surcharge
-            });
-
-            runningTotal += surcharge;
+        if (daysAhead === 0) {
+            return {
+                rate: 0.30,
+                label: "Same-day surcharge (30%)"
+            };
         }
-    }
 
-    if (data.dateType === "flexible") {
-        const discount = roundMoney(runningTotal * 0.2);
+        if (daysAhead === 1) {
+            return {
+                rate: 0.22,
+                label:
+                    "Next-day surcharge (22%)"
+            };
+        }
 
-        breakdown.push({
-            label: "Flexible date discount (20%)",
-            amount: -discount
-        });
+        if (daysAhead === 2) {
+            return {
+                rate: 0.14,
+                label:
+                    "Second-day surcharge (14%)"
+            };
+        }
 
-        runningTotal -= discount;
-    }
+        const weekDay =
+            new Date(
+                selectedDate
+            ).getUTCDay();
+
+        if (weekDay === 5) {
+            return {
+                rate: 0.07,
+                label:
+                    "Friday surcharge (7%)"
+            };
+        }
+
+        if (weekDay === 6) {
+            return {
+                rate: 0.04,
+                label:
+                    "Saturday surcharge (4%)"
+            };
+        }
+
+        if (weekDay === 0) {
+            return {
+                rate: 0.05,
+                label:
+                    "Sunday surcharge (5%)"
+            };
+        }
+
+        return {
+            rate: 0,
+            label: ""
+        };
+    };
+
+const calculateCoreCharges = ({
+    distance,
+    volume,
+    crewSize,
+    pickupFloor,
+    deliveryFloor
+}) => {
+    const config =
+        PRICING_CONFIG[
+        crewSize
+        ];
+
+    const baseFee =
+        config.BASE;
+
+    const volumeCharge =
+        getVolumeCharge(
+            volume,
+            config
+        );
+
+    const distanceCharge =
+        getMileageCharge(
+            distance,
+            config
+        );
+
+    const interactionCharge =
+        config.INTERACTION *
+        volume *
+        distance;
+
+    const pickupFloorCharge =
+        getFloorCharge(
+            pickupFloor
+                ?.floorLevel,
+
+            pickupFloor
+                ?.hasLift,
+
+            config
+        );
+
+    const deliveryFloorCharge =
+        getFloorCharge(
+            deliveryFloor
+                ?.floorLevel,
+
+            deliveryFloor
+                ?.hasLift,
+
+            config
+        );
+
+    const rawCoreTotal =
+        baseFee +
+        volumeCharge +
+        distanceCharge +
+        interactionCharge +
+        pickupFloorCharge +
+        deliveryFloorCharge;
+
+    const minimumPriceAdjustment =
+        Math.max(
+            0,
+            config.MIN_PRICE -
+            rawCoreTotal
+        );
 
     return {
-        breakdown,
-        total: Math.round(runningTotal)
+        baseFee,
+        volumeCharge,
+        distanceCharge,
+        interactionCharge,
+        pickupFloorCharge,
+        deliveryFloorCharge,
+        minimumPriceAdjustment,
+
+        coreTotal:
+            rawCoreTotal +
+            minimumPriceAdjustment
     };
 };
 
-const getLoadingTimeMinutes = volumeM3 => {
-    return Math.round(Math.max(0, Number(volumeM3) || 0) * 5);
-};
+const calculatePricing =
+    data => {
+        const volume =
+            positiveNumber(
+                data.volume ??
+                data.totalVolume
+            );
+
+        const distance =
+            positiveNumber(
+                data.distance
+            );
+
+        const crewSize =
+            getCrewSize(
+                data.helperCount
+            );
+
+        const config =
+            PRICING_CONFIG[
+            crewSize
+            ];
+
+        const tripsNeeded =
+            Math.max(
+                1,
+                Math.ceil(
+                    volume /
+                    PRICING_CONFIG
+                        .SINGLE_TRIP_MAX_M3
+                )
+            );
+
+        const requiresContactSupport =
+            volume >
+            PRICING_CONFIG
+                .SINGLE_TRIP_MAX_M3 &&
+            distance >
+            PRICING_CONFIG
+                .LOCAL_MULTI_TRIP_MAX_MILES;
+
+        if (
+            requiresContactSupport
+        ) {
+            return {
+                total: null,
+                breakdown: [],
+
+                crewSize,
+                tripsNeeded,
+                multiTrip: false,
+
+                requiresContactSupport:
+                    true,
+
+                pricingStatus:
+                    "contact_support",
+
+                note:
+                    CONTACT_SUPPORT_MESSAGE
+            };
+        }
+
+        const charges =
+            calculateCoreCharges({
+                distance,
+                volume,
+                crewSize,
+
+                pickupFloor:
+                    data.pickupFloor,
+
+                deliveryFloor:
+                    data.deliveryFloor
+            });
+
+        const extraTrips =
+            Math.max(
+                tripsNeeded - 1,
+                0
+            );
+
+        const extraMileageCharge =
+            extraTrips *
+            distance *
+            2 *
+            config.MILE_0_50;
+
+        const extraTripFees =
+            extraTrips *
+            PRICING_CONFIG
+                .EXTRA_TRIP_FEE;
+
+        const pickupParkingCharge =
+            getParkingCharge(
+                data.pickupFloor
+                    ?.hasParking ??
+                true,
+
+                volume
+            );
+
+        const deliveryParkingCharge =
+            getParkingCharge(
+                data.deliveryFloor
+                    ?.hasParking ??
+                true,
+
+                volume
+            );
+
+        const dismantleCharge =
+            positiveNumber(
+                data.dismantleCount
+            ) * 20;
+
+        const assemblyCharge =
+            positiveNumber(
+                data.assemblyCount
+            ) * 30;
+
+        const packingCharge =
+            data.packingService
+                ? 20
+                : 0;
+
+        const timeSlotCharge =
+            getTimeSlotCharge(
+                data.timeSlot
+            );
+
+        let runningTotal =
+            charges.coreTotal +
+            extraMileageCharge +
+            extraTripFees +
+            pickupParkingCharge +
+            deliveryParkingCharge +
+            dismantleCharge +
+            assemblyCharge +
+            packingCharge +
+            timeSlotCharge;
+
+        const breakdown = [
+            {
+                label: `Base fee (${crewSize}-person crew)`,
+
+                amount:
+                    roundMoney(
+                        charges.baseFee
+                    )
+            }
+        ];
+
+        if (
+            charges.volumeCharge >
+            0
+        ) {
+            breakdown.push({
+                label: `Items volume (${volume.toFixed(
+                    2
+                )} m³)`,
+
+                amount:
+                    roundMoney(
+                        charges
+                            .volumeCharge
+                    )
+            });
+        }
+
+        if (
+            charges.distanceCharge >
+            0
+        ) {
+            breakdown.push({
+                label: `Mileage (${distance} mi)`,
+
+                amount:
+                    roundMoney(
+                        charges
+                            .distanceCharge
+                    )
+            });
+        }
+
+        if (
+            charges.interactionCharge >
+            0
+        ) {
+            breakdown.push({
+                label:
+                    "Volume and distance adjustment",
+
+                amount:
+                    roundMoney(
+                        charges
+                            .interactionCharge
+                    )
+            });
+        }
+
+        if (
+            charges.pickupFloorCharge >
+            0
+        ) {
+            breakdown.push({
+                label: `Pickup floor (${data.pickupFloor?.floorLevel}${data.pickupFloor
+                    ?.hasLift
+                    ? " + lift"
+                    : ""
+                    })`,
+
+                amount:
+                    roundMoney(
+                        charges
+                            .pickupFloorCharge
+                    )
+            });
+        }
+
+        if (
+            charges.deliveryFloorCharge >
+            0
+        ) {
+            breakdown.push({
+                label: `Delivery floor (${data.deliveryFloor?.floorLevel}${data.deliveryFloor
+                    ?.hasLift
+                    ? " + lift"
+                    : ""
+                    })`,
+
+                amount:
+                    roundMoney(
+                        charges
+                            .deliveryFloorCharge
+                    )
+            });
+        }
+
+        if (
+            charges
+                .minimumPriceAdjustment >
+            0
+        ) {
+            breakdown.push({
+                label:
+                    "Minimum job price adjustment",
+
+                amount:
+                    roundMoney(
+                        charges
+                            .minimumPriceAdjustment
+                    )
+            });
+        }
+
+        if (
+            extraMileageCharge >
+            0
+        ) {
+            breakdown.push({
+                label: `Extra trip mileage ×${extraTrips}`,
+
+                amount:
+                    roundMoney(
+                        extraMileageCharge
+                    )
+            });
+        }
+
+        if (
+            extraTripFees > 0
+        ) {
+            breakdown.push({
+                label: `Extra trip fee ×${extraTrips}`,
+
+                amount:
+                    roundMoney(
+                        extraTripFees
+                    )
+            });
+        }
+
+        /*
+         * Parking charges remain hidden
+         * from public breakdown.
+         */
+
+        if (
+            dismantleCharge > 0
+        ) {
+            breakdown.push({
+                label: `Dismantling ×${positiveNumber(
+                    data.dismantleCount
+                )}`,
+
+                amount:
+                    roundMoney(
+                        dismantleCharge
+                    )
+            });
+        }
+
+        if (
+            assemblyCharge > 0
+        ) {
+            breakdown.push({
+                label: `Assembly ×${positiveNumber(
+                    data.assemblyCount
+                )}`,
+
+                amount:
+                    roundMoney(
+                        assemblyCharge
+                    )
+            });
+        }
+
+        if (
+            packingCharge > 0
+        ) {
+            breakdown.push({
+                label:
+                    "Packing service",
+
+                amount:
+                    roundMoney(
+                        packingCharge
+                    )
+            });
+        }
+
+        if (
+            timeSlotCharge > 0
+        ) {
+            breakdown.push({
+                label:
+                    getTimeSlotLabel(
+                        data.timeSlot
+                    ),
+
+                amount:
+                    roundMoney(
+                        timeSlotCharge
+                    )
+            });
+        }
+
+        if (
+            data.dateType ===
+            "specific" &&
+            data.date
+        ) {
+            const surcharge =
+                getDateSurcharge(
+                    data.date
+                );
+
+            if (
+                surcharge.rate >
+                0
+            ) {
+                const surchargeAmount =
+                    roundMoney(
+                        runningTotal *
+                        surcharge.rate
+                    );
+
+                runningTotal +=
+                    surchargeAmount;
+
+                breakdown.push({
+                    label:
+                        surcharge.label,
+
+                    amount:
+                        surchargeAmount
+                });
+            }
+        }
+
+        if (
+            data.dateType ===
+            "flexible"
+        ) {
+            const discount =
+                roundMoney(
+                    runningTotal *
+                    0.2
+                );
+
+            runningTotal -=
+                discount;
+
+            breakdown.push({
+                label:
+                    "Flexible date discount (20%)",
+
+                amount:
+                    -discount
+            });
+        }
+
+        return {
+            total:
+                roundMoney(
+                    runningTotal
+                ),
+
+            breakdown,
+
+            crewSize,
+            tripsNeeded,
+
+            multiTrip:
+                tripsNeeded > 1,
+
+            requiresContactSupport:
+                false,
+
+            pricingStatus:
+                "calculated",
+
+            note:
+                tripsNeeded > 1
+                    ? `${tripsNeeded} van trips included in this price.`
+                    : ""
+        };
+    };
+
+const calculateTotalPrice =
+    data =>
+        calculatePricing(
+            data
+        ).total;
+
+const getPriceBreakdown =
+    data =>
+        calculatePricing(
+            data
+        );
+
+const getLoadingTimeMinutes =
+    volumeM3 =>
+        Math.round(
+            positiveNumber(
+                volumeM3
+            ) * 5
+        );
 
 module.exports = {
+    calculatePricing,
     calculateTotalPrice,
     getPriceBreakdown,
-    getLoadingTimeMinutes
+    getLoadingTimeMinutes,
+    PRICING_CONFIG
 };
