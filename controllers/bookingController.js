@@ -34,7 +34,7 @@ const generateBookingReference = async () => {
 
     return {
         bookingSequence: counter.sequence,
-        bookingRef: `KM${counter.sequence}-${day}-${month}-${year}`
+        bookingRef: `KM${counter.sequence}${day}${month}${year}`
     };
 };
 
@@ -699,6 +699,7 @@ const sendInvoice = async (req, res) => {
 
         const {
             method,
+            sendBoth,
             notes,
             attachment
         } = req.body;
@@ -716,37 +717,34 @@ const sendInvoice = async (req, res) => {
 
         }
 
+        const hasEmail = !!booking.customer?.email;
+
+        const phone = (
+            booking.customer?.whatsapp ||
+            booking.customer?.phone ||
+            ""
+        ).replace(/\D/g, "");
+
+        const hasWhatsapp = !!phone;
 
 
-        // EMAIL
-        if (method === "email") {
+        const html = `
+<p>Hello ${booking.customer?.name || "Customer"},</p>
 
+<p>Please find your Khan Moves invoice attached.</p>
 
-            if (!booking.customer?.email) {
+<p>
+Booking Ref:
+<strong>${booking.bookingRef}</strong>
+</p>
 
-                return res.status(400).json({
-                    success: false,
-                    message: "Customer email missing"
-                });
+${notes ? `<p>${notes}</p>` : ""}
 
-            }
+<p>Thank you for choosing Khan Moves.</p>
+`;
 
-
-            const html = `
-            <p>Hello ${booking.customer?.name || "Customer"},</p>
-            <p>
-            Please find your Khan Moves invoice attached.
-            </p>
-            <p>
-            Booking Ref:
-            <strong>${booking.bookingRef}</strong>
-            </p>
-            ${notes ? `<p>${notes}</p>` : ""}
-            <p>
-            Thank you for choosing Khan Moves.
-            </p>
-            `;
-            const attachments = attachment ? [
+        const attachments = attachment
+            ? [
                 {
                     filename: attachment.filename,
                     content: Buffer.from(
@@ -754,66 +752,19 @@ const sendInvoice = async (req, res) => {
                         "base64"
                     )
                 }
-            ] : [];
+            ]
+            : [];
 
 
+        const whatsappMessage = `Hello ${booking.customer?.name || "Customer"},
 
-            const sent = await sendEmail(
-                booking.customer.email,
-                `Khan Moves Invoice - ${booking.bookingRef}`,
-                html,
-                attachments
-            );
-
-
-            if (!sent) {
-
-                return res.status(500).json({
-                    success: false,
-                    message: "Email failed"
-                });
-
-            }
-            return res.json({
-                success: true,
-                message: "Invoice sent by email"
-            });
-
-
-        }
-
-        // WHATSAPP
-
-        if (method === "whatsapp") {
-
-
-            const phone =
-                (
-                    booking.customer?.whatsapp ||
-                    booking.customer?.phone ||
-                    ""
-                )
-                    .replace(/\D/g, "");
-
-
-
-            if (!phone) {
-
-                return res.status(400).json({
-                    success: false,
-                    message: "Phone number missing"
-                });
-
-            }
-
-
-            const message = `Hello ${booking.customer?.name || "Customer"},
 Your Khan Moves invoice is ready.
 
 Booking Ref: ${booking.bookingRef}
 Amount: £${booking.totalPrice}
 
 ${notes ? notes + "\n\n" : ""}Payment Details:
+
 Bank Name: Khan Moves Limited
 Account Name: Khan Moves Limited
 Sort Code: 20-08-64
@@ -821,22 +772,107 @@ Account Number: 13519252
 
 Thank you for choosing Khan Moves.`;
 
+        // SEND BOTH
+        if (sendBoth) {
+
+            if (!hasEmail && !hasWhatsapp) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Customer has neither Email nor WhatsApp."
+                });
+            }
+
+            if (hasEmail) {
+
+                await sendEmail(
+                    booking.customer.email,
+                    `Khan Moves Invoice - ${booking.bookingRef}`,
+                    html,
+                    attachments
+                );
+
+            }
+
+            if (hasWhatsapp) {
+
+                if (attachment?.content) {
+
+                    await sendWhatsAppDocument(
+                        phone,
+                        attachment.content,
+                        attachment.filename || "invoice.pdf",
+                        whatsappMessage
+                    );
+
+                } else {
+
+                    await sendWhatsApp(
+                        phone,
+                        whatsappMessage
+                    );
+
+                }
+
+            }
+
+            return res.json({
+                success: true,
+                message: "Invoice sent via Email & WhatsApp"
+            });
+
+        }
+
+
+        // EMAIL ONLY
+        if (method === "email") {
+
+            if (!hasEmail) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Customer email missing"
+                });
+            }
+
+            await sendEmail(
+                booking.customer.email,
+                `Khan Moves Invoice - ${booking.bookingRef}`,
+                html,
+                attachments
+            );
+
+            return res.json({
+                success: true,
+                message: "Invoice sent by email"
+            });
+
+        }
+
+
+        // WHATSAPP ONLY
+        if (method === "whatsapp") {
+
+            if (!hasWhatsapp) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Phone number missing"
+                });
+            }
+
             if (attachment?.content) {
 
                 await sendWhatsAppDocument(
                     phone,
                     attachment.content,
                     attachment.filename || "invoice.pdf",
-                    message
+                    whatsappMessage
                 );
 
             } else {
 
                 await sendWhatsApp(
                     phone,
-                    message
+                    whatsappMessage
                 );
-
 
             }
 
@@ -844,7 +880,6 @@ Thank you for choosing Khan Moves.`;
                 success: true,
                 message: "Invoice sent on WhatsApp"
             });
-
 
         }
 

@@ -15,10 +15,19 @@ const {
     bulkPauseItems,
     bulkDeleteItems
 } = require("../controllers/inventoryController");
+const upload = require("../middleware/upload");
 
 router.get("/services", getAllServices);
-router.post("/services", createService);
-router.put("/services/:serviceId", updateService);
+router.post(
+    "/services",
+    upload.single("image"),
+    createService
+);
+router.put(
+    "/services/:serviceId",
+    upload.single("image"),
+    updateService
+);
 router.delete("/services/:serviceId", deleteService);
 
 router.post("/services/:serviceId/categories", addCategory);

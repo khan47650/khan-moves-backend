@@ -1,4 +1,6 @@
 const Service = require("../models/Service");
+const uploadToCloudinary = require("../utils/cloudinaryUpload");
+const cloudinary = require("../utils/cloudinary");
 
 const slugify = value => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 const errorMessage = err => err.name === "CastError" ? "Invalid inventory ID." : err.message;
@@ -33,12 +35,27 @@ const createService = async (req, res) => {
         if (!label) return res.status(400).json({ success: false, message: "Service name is required." });
 
         const slug = slugify(label);
+        let image = "";
+        let imagePublicId = "";
+
+        if (req.file) {
+
+            const uploaded = await uploadToCloudinary(req.file);
+
+            image = uploaded.url;
+            imagePublicId = uploaded.public_id;
+
+        }
         if (!slug) return res.status(400).json({ success: false, message: "Enter a valid service name." });
 
         const exists = await Service.findOne({ slug });
         if (exists) return res.status(409).json({ success: false, message: "A service with this name already exists." });
 
-        const service = await Service.create({ label, slug, categories: [] });
+        const service = await Service.create({
+            label, slug, image,
+
+            imagePublicId, categories: []
+        });
         res.status(201).json({ success: true, data: service });
     } catch (err) {
         res.status(500).json({ success: false, message: errorMessage(err) });
@@ -56,19 +73,43 @@ const updateService = async (req, res) => {
             _id: { $ne: req.params.serviceId }
         });
 
+
         if (duplicate) return res.status(409).json({
             success: false,
             message: "A service with this name already exists."
         });
 
-        const service = await Service.findByIdAndUpdate(
-            req.params.serviceId,
-            { label, slug },
-            { new: true, runValidators: true }
-        );
+        const service = await Service.findById(req.params.serviceId);
 
-        if (!service) return res.status(404).json({ success: false, message: "Service not found." });
-        res.json({ success: true, data: service });
+        if (!service) {
+            return res.status(404).json({
+                success: false,
+                message: "Service not found."
+            });
+        }
+
+        service.label = label;
+        service.slug = slug;
+
+        if (req.file) {
+
+            // Delete old image if exists
+            if (service.imagePublicId) {
+                await cloudinary.uploader.destroy(service.imagePublicId);
+            }
+
+            const uploaded = await uploadToCloudinary(req.file);
+
+            service.image = uploaded.url;
+            service.imagePublicId = uploaded.public_id;
+        }
+
+        await service.save();
+
+        res.json({
+            success: true,
+            data: service
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: errorMessage(err) });
     }

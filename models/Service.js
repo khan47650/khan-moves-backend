@@ -15,6 +15,15 @@ const categorySchema = new mongoose.Schema({
 const serviceSchema = new mongoose.Schema({
     label: { type: String, required: true, trim: true },
     slug: { type: String, required: true, unique: true, trim: true },
+    image: {
+        type: String,
+        default: ""
+    },
+
+    imagePublicId: {
+        type: String,
+        default: ""
+    },
     categories: { type: [categorySchema], default: [] }
 }, { timestamps: true });
 
