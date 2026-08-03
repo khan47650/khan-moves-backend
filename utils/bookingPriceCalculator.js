@@ -6,34 +6,34 @@
 const PRICING_CONFIG = {
     1: {
         BASE: 13.85,
-        VOLUME_COEF: 7.1,
-        VOLUME_POWER: 1.3,
+        VOLUME_COEF: 5.68,
+        VOLUME_POWER: 1.30,
 
-        MILE_0_50: 0.9135,
-        MILE_50_90: 0.2687,
-        MILE_90_PLUS: 0.7257,
+        MILE_0_50: 0.7308,
+        MILE_50_90: 0.2150,
+        MILE_90_PLUS: 0.5806,
 
-        INTERACTION: 0.0491,
-        MIN_PRICE: 36,
+        INTERACTION: 0.0393,
+        MIN_PRICE: 29,
 
-        FLOOR_SURCHARGE_PER_FLOOR: 35,
-        FLOOR_SURCHARGE_WITH_LIFT: 30
+        FLOOR_SURCHARGE_PER_FLOOR: 15,
+        FLOOR_SURCHARGE_WITH_LIFT: 10
     },
 
     2: {
         BASE: 16.71,
-        VOLUME_COEF: 11.76,
+        VOLUME_COEF: 9.41,
         VOLUME_POWER: 1.21,
 
-        MILE_0_50: 1.1097,
-        MILE_50_90: 0.4219,
-        MILE_90_PLUS: 0.8501,
+        MILE_0_50: 0.8878,
+        MILE_50_90: 0.3375,
+        MILE_90_PLUS: 0.6801,
 
-        INTERACTION: 0.0642,
-        MIN_PRICE: 60,
+        INTERACTION: 0.0514,
+        MIN_PRICE: 48,
 
-        FLOOR_SURCHARGE_PER_FLOOR: 80.73,
-        FLOOR_SURCHARGE_WITH_LIFT: 68.28
+        FLOOR_SURCHARGE_PER_FLOOR: 25,
+        FLOOR_SURCHARGE_WITH_LIFT: 15
     },
 
     SINGLE_TRIP_MAX_M3: 18,
