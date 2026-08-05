@@ -18,7 +18,7 @@ const PRICING_CONFIG = {
     },
 
     2: {
-        BASE: 25.0,
+        BASE: 40.0,
         VOLUME_COEF: 9.2,
         VOLUME_POWER: 1.30,
         MILE_0_50: 0.800,
