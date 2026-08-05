@@ -5,6 +5,8 @@ const {
     calculatePricing
 } = require("../utils/bookingPriceCalculator");
 const { sendWhatsApp, sendWhatsAppDocument } = require("../utils/sendWhatsApp");
+const bookingConfirmationTemplate =
+    require("../utils/bookingConfirmationTemplate");
 
 // ── Price calculator (same logic as frontend) ──────────────────────────────
 const generateBookingReference = async () => {
@@ -61,27 +63,6 @@ const sanitizeItems = (rawItems = []) => {
         }));
 };
 
-const sanitizeAddOnItems = (rawItems = []) => {
-    return rawItems
-        .filter(item => item?.name && Number(item.quantity || 0) > 0)
-        .map(item => ({
-            itemId: item.itemId || item._id || null,
-            name: String(item.name).trim(),
-            categoryName: String(item.categoryName || "").trim(),
-            quantity: Math.max(
-                1,
-                Math.floor(Number(item.quantity) || 1)
-            )
-        }));
-};
-
-const getItemsCount = items => {
-    return items.reduce(
-        (total, item) => total + (Number(item.quantity) || 0),
-        0
-    );
-};
-
 // ── POST /api/bookings ──────────────────────────────────────────────────────
 const createBooking = async (req, res) => {
     try {
@@ -115,21 +96,15 @@ const createBooking = async (req, res) => {
             0
         );
 
-        const dismantleItems = sanitizeAddOnItems(
-            body.dismantleItems || []
+        const dismantleCount = Math.max(
+            0,
+            Number(body.dismantleCount) || 0
         );
 
-        const assemblyItems = sanitizeAddOnItems(
-            body.assemblyItems || []
+        const assemblyCount = Math.max(
+            0,
+            Number(body.assemblyCount) || 0
         );
-
-        const dismantleCount = dismantleItems.length
-            ? getItemsCount(dismantleItems)
-            : Math.max(0, Number(body.dismantleCount) || 0);
-
-        const assemblyCount = assemblyItems.length
-            ? getItemsCount(assemblyItems)
-            : Math.max(0, Number(body.assemblyCount) || 0);
 
         const helperCount = Number(body.helperCount) > 0 ? 1 : 0;
 
@@ -150,31 +125,10 @@ const createBooking = async (req, res) => {
         const pricingResult =
             calculatePricing(pricingData);
 
-        if (
-            pricingResult
-                .requiresContactSupport
-        ) {
-            return res.status(422).json({
-                success: false,
-                code:
-                    "CONTACT_SUPPORT_REQUIRED",
-                message:
-                    pricingResult.note ||
-                    "Due to the size and distance of this move, please contact customer support for a confirmed quote.",
-                pricing: {
-                    total: null,
-                    tripsNeeded:
-                        pricingResult
-                            .tripsNeeded,
-                    pricingStatus:
-                        pricingResult
-                            .pricingStatus
-                }
-            });
-        }
-
         const totalPrice =
-            pricingResult.total;
+            body.totalPrice !== undefined
+                ? Number(body.totalPrice)
+                : pricingResult.total;
 
         const breakdown =
             pricingResult.breakdown;
@@ -218,9 +172,6 @@ const createBooking = async (req, res) => {
                 body.timeSlot || "",
 
             helperCount,
-
-            dismantleItems,
-            assemblyItems,
             dismantleCount,
             assemblyCount,
 
@@ -242,14 +193,14 @@ const createBooking = async (req, res) => {
 
             totalPrice,
 
+            originalPrice:
+                pricingResult.total,
+
+            adminPrice:
+                null,
+
             priceBreakdown:
                 breakdown,
-
-            tripsNeeded:
-                pricingResult.tripsNeeded,
-
-            multiTrip:
-                pricingResult.multiTrip,
 
             pricingStatus:
                 pricingResult.pricingStatus,
@@ -262,6 +213,30 @@ const createBooking = async (req, res) => {
 
             status: "pending"
         });
+
+        if (booking.customer?.email) {
+
+            try {
+
+                const html =
+                    bookingConfirmationTemplate(booking);
+
+                await sendEmail(
+                    booking.customer.email,
+                    `Booking Received - ${booking.bookingRef}`,
+                    html
+                );
+
+            } catch (emailError) {
+
+                console.error(
+                    "Booking confirmation email failed:",
+                    emailError
+                );
+
+            }
+
+        }
 
         return res.status(201).json({
             success: true,
@@ -435,31 +410,41 @@ const updateBooking = async (req, res) => {
             ...(body.deliveryFloor || {})
         };
 
-        const dismantleItems = Array.isArray(body.dismantleItems)
-            ? sanitizeAddOnItems(body.dismantleItems)
-            : sanitizeAddOnItems(
-                booking.dismantleItems?.map(
-                    item => item.toObject?.() || item
-                ) || []
-            );
+        // const dismantleItems = Array.isArray(body.dismantleItems)
+        //     ? sanitizeAddOnItems(body.dismantleItems)
+        //     : sanitizeAddOnItems(
+        //         booking.dismantleItems?.map(
+        //             item => item.toObject?.() || item
+        //         ) || []
+        //     );
 
-        const assemblyItems = Array.isArray(body.assemblyItems)
-            ? sanitizeAddOnItems(body.assemblyItems)
-            : sanitizeAddOnItems(
-                booking.assemblyItems?.map(
-                    item => item.toObject?.() || item
-                ) || []
-            );
+        // const assemblyItems = Array.isArray(body.assemblyItems)
+        //     ? sanitizeAddOnItems(body.assemblyItems)
+        //     : sanitizeAddOnItems(
+        //         booking.assemblyItems?.map(
+        //             item => item.toObject?.() || item
+        //         ) || []
+        //     );
 
-        const dismantleCount = Array.isArray(body.dismantleItems)
-            ? getItemsCount(dismantleItems)
-            : body.dismantleCount !== undefined
+        // const dismantleCount = Array.isArray(body.dismantleItems)
+        //     ? getItemsCount(dismantleItems)
+        //     : body.dismantleCount !== undefined
+        //         ? Math.max(0, Number(body.dismantleCount) || 0)
+        //         : Number(booking.dismantleCount) || 0;
+
+        // const assemblyCount = Array.isArray(body.assemblyItems)
+        //     ? getItemsCount(assemblyItems)
+        //     : body.assemblyCount !== undefined
+        //         ? Math.max(0, Number(body.assemblyCount) || 0)
+        //         : Number(booking.assemblyCount) || 0;
+
+        const dismantleCount =
+            body.dismantleCount !== undefined
                 ? Math.max(0, Number(body.dismantleCount) || 0)
                 : Number(booking.dismantleCount) || 0;
 
-        const assemblyCount = Array.isArray(body.assemblyItems)
-            ? getItemsCount(assemblyItems)
-            : body.assemblyCount !== undefined
+        const assemblyCount =
+            body.assemblyCount !== undefined
                 ? Math.max(0, Number(body.assemblyCount) || 0)
                 : Number(booking.assemblyCount) || 0;
 
@@ -510,31 +495,16 @@ const updateBooking = async (req, res) => {
         const pricingResult =
             calculatePricing(pricingData);
 
-        if (
-            pricingResult
-                .requiresContactSupport
-        ) {
-            return res.status(422).json({
-                success: false,
-                code:
-                    "CONTACT_SUPPORT_REQUIRED",
-                message:
-                    pricingResult.note ||
-                    "Due to the size and distance of this move, please contact customer support for a confirmed quote.",
-                pricing: {
-                    total: null,
-                    tripsNeeded:
-                        pricingResult
-                            .tripsNeeded,
-                    pricingStatus:
-                        pricingResult
-                            .pricingStatus
-                }
-            });
-        }
+        const originalPrice =
+            pricingResult.total;
+
+        const adminPrice =
+            body.totalPrice !== undefined
+                ? Number(body.totalPrice)
+                : null;
 
         const totalPrice =
-            pricingResult.total;
+            adminPrice ?? originalPrice;
 
         const breakdown =
             pricingResult.breakdown;
@@ -555,29 +525,28 @@ const updateBooking = async (req, res) => {
         booking.date = pricingData.date;
         booking.timeSlot = pricingData.timeSlot;
         booking.helperCount = helperCount;
-        booking.dismantleItems = dismantleItems;
-        booking.assemblyItems = assemblyItems;
         booking.dismantleCount = dismantleCount;
         booking.assemblyCount = assemblyCount;
         booking.packingService = pricingData.packingService;
         booking.specialInstructions = specialInstructions;
         booking.totalPrice =
             totalPrice;
+        booking.originalPrice =
+            originalPrice;
+
+        booking.adminPrice =
+            adminPrice;
 
         booking.priceBreakdown =
             breakdown;
-
-        booking.tripsNeeded =
-            pricingResult.tripsNeeded;
-
-        booking.multiTrip =
-            pricingResult.multiTrip;
 
         booking.pricingStatus =
             pricingResult.pricingStatus;
 
         booking.pricingNote =
-            pricingResult.note || "";
+            body.totalPrice !== undefined
+                ? `Admin price override. System calculated: £${pricingResult.total}`
+                : (pricingResult.note || "");
 
         if (body.customer) {
             booking.customer = {

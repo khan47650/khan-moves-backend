@@ -59,27 +59,27 @@ const itemSchema = new mongoose.Schema({
     }
 }, { _id: false });
 
-const selectedAddOnItemSchema = new mongoose.Schema({
-    itemId: {
-        type: mongoose.Schema.Types.ObjectId,
-        default: null
-    },
-    name: {
-        type: String,
-        required: true,
-        trim: true
-    },
-    categoryName: {
-        type: String,
-        default: "",
-        trim: true
-    },
-    quantity: {
-        type: Number,
-        default: 1,
-        min: 1
-    }
-}, { _id: false });
+// const selectedAddOnItemSchema = new mongoose.Schema({
+//     itemId: {
+//         type: mongoose.Schema.Types.ObjectId,
+//         default: null
+//     },
+//     name: {
+//         type: String,
+//         required: true,
+//         trim: true
+//     },
+//     categoryName: {
+//         type: String,
+//         default: "",
+//         trim: true
+//     },
+//     quantity: {
+//         type: Number,
+//         default: 1,
+//         min: 1
+//     }
+// }, { _id: false });
 
 const floorSchema = new mongoose.Schema({
     floorLevel: { type: String, default: "ground" },
@@ -169,16 +169,6 @@ const bookingSchema = new mongoose.Schema({
         default: 0
     },
 
-    dismantleItems: {
-        type: [selectedAddOnItemSchema],
-        default: []
-    },
-
-    assemblyItems: {
-        type: [selectedAddOnItemSchema],
-        default: []
-    },
-
     dismantleCount: {
         type: Number,
         default: 0,
@@ -220,6 +210,16 @@ const bookingSchema = new mongoose.Schema({
         min: 0
     },
 
+    originalPrice: {
+        type: Number,
+        default: 0
+    },
+
+    adminPrice: {
+        type: Number,
+        default: null
+    },
+
     discount: {
         type: Number,
         default: 0
@@ -243,22 +243,10 @@ const bookingSchema = new mongoose.Schema({
         }
     }],
 
-    tripsNeeded: {
-        type: Number,
-        default: 1,
-        min: 1
-    },
-
-    multiTrip: {
-        type: Boolean,
-        default: false
-    },
-
     pricingStatus: {
         type: String,
         enum: [
             "calculated",
-            "contact_support"
         ],
         default: "calculated"
     },

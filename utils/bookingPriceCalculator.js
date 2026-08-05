@@ -6,46 +6,40 @@
 const PRICING_CONFIG = {
     1: {
         BASE: 13.85,
-        VOLUME_COEF: 5.68,
+        VOLUME_COEF: 7.0,
         VOLUME_POWER: 1.30,
-
-        MILE_0_50: 0.7308,
-        MILE_50_90: 0.2150,
-        MILE_90_PLUS: 0.5806,
-
-        INTERACTION: 0.0393,
-        MIN_PRICE: 29,
-
+        MILE_0_50: 0.700,
+        MILE_50_90: 0.500,
+        MILE_90_PLUS: 0.800,
+        INTERACTION: 0.0460,
+        MIN_PRICE: 30,
         FLOOR_SURCHARGE_PER_FLOOR: 15,
         FLOOR_SURCHARGE_WITH_LIFT: 10
     },
 
     2: {
-        BASE: 16.71,
-        VOLUME_COEF: 9.41,
-        VOLUME_POWER: 1.21,
-
-        MILE_0_50: 0.8878,
-        MILE_50_90: 0.3375,
-        MILE_90_PLUS: 0.6801,
-
-        INTERACTION: 0.0514,
-        MIN_PRICE: 48,
-
+        BASE: 25.0,
+        VOLUME_COEF: 9.2,
+        VOLUME_POWER: 1.30,
+        MILE_0_50: 0.800,
+        MILE_50_90: 0.650,
+        MILE_90_PLUS: 1.000,
+        INTERACTION: 0.0650,
+        MIN_PRICE: 60,
         FLOOR_SURCHARGE_PER_FLOOR: 25,
         FLOOR_SURCHARGE_WITH_LIFT: 15
     },
 
-    SINGLE_TRIP_MAX_M3: 18,
-    LOCAL_MULTI_TRIP_MAX_MILES: 15,
-    EXTRA_TRIP_FEE: 30
+    // SINGLE_TRIP_MAX_M3: 18,
+    // LOCAL_MULTI_TRIP_MAX_MILES: 15,
+    // EXTRA_TRIP_FEE: 30
 };
 
 const DAY_IN_MS =
     24 * 60 * 60 * 1000;
 
-const CONTACT_SUPPORT_MESSAGE =
-    "Due to the size and distance of this move, please contact customer support for a confirmed quote.";
+// const CONTACT_SUPPORT_MESSAGE =
+//     "Due to the size and distance of this move, please contact customer support for a confirmed quote.";
 
 const roundMoney = value => Math.round(Number(value) || 0);
 
@@ -179,7 +173,7 @@ const getParkingCharge = (
         );
 
     if (volume >= 6) {
-        return 50;
+        return 40;
     }
 
     if (volume >= 2) {
@@ -492,35 +486,35 @@ const calculatePricing =
                 )
             );
 
-        const requiresContactSupport =
-            volume >
-            PRICING_CONFIG
-                .SINGLE_TRIP_MAX_M3 &&
-            distance >
-            PRICING_CONFIG
-                .LOCAL_MULTI_TRIP_MAX_MILES;
+        // const requiresContactSupport =
+        //     volume >
+        //     PRICING_CONFIG
+        //         .SINGLE_TRIP_MAX_M3 &&
+        //     distance >
+        //     PRICING_CONFIG
+        //         .LOCAL_MULTI_TRIP_MAX_MILES;
 
-        if (
-            requiresContactSupport
-        ) {
-            return {
-                total: null,
-                breakdown: [],
+        // if (
+        //     requiresContactSupport
+        // ) {
+        //     return {
+        //         total: null,
+        //         breakdown: [],
 
-                crewSize,
-                tripsNeeded,
-                multiTrip: false,
+        //         crewSize,
+        //         tripsNeeded,
+        //         multiTrip: false,
 
-                requiresContactSupport:
-                    true,
+        //         requiresContactSupport:
+        //             true,
 
-                pricingStatus:
-                    "contact_support",
+        //         pricingStatus:
+        //             "contact_support",
 
-                note:
-                    CONTACT_SUPPORT_MESSAGE
-            };
-        }
+        //         note:
+        //             CONTACT_SUPPORT_MESSAGE
+        //     };
+        // }
 
         const charges =
             calculateCoreCharges({
@@ -535,22 +529,22 @@ const calculatePricing =
                     data.deliveryFloor
             });
 
-        const extraTrips =
-            Math.max(
-                tripsNeeded - 1,
-                0
-            );
+        // const extraTrips =
+        //     Math.max(
+        //         tripsNeeded - 1,
+        //         0
+        //     );
 
-        const extraMileageCharge =
-            extraTrips *
-            distance *
-            2 *
-            config.MILE_0_50;
+        // const extraMileageCharge =
+        //     extraTrips *
+        //     distance *
+        //     2 *
+        //     config.MILE_0_50;
 
-        const extraTripFees =
-            extraTrips *
-            PRICING_CONFIG
-                .EXTRA_TRIP_FEE;
+        // const extraTripFees =
+        //     extraTrips *
+        //     PRICING_CONFIG
+        //         .EXTRA_TRIP_FEE;
 
         const pickupParkingCharge =
             getParkingCharge(
@@ -590,16 +584,20 @@ const calculatePricing =
                 data.timeSlot
             );
 
-        let runningTotal =
+        const movingCharges =
             charges.coreTotal +
-            extraMileageCharge +
-            extraTripFees +
             pickupParkingCharge +
-            deliveryParkingCharge +
+            deliveryParkingCharge;
+
+        const addOnCharges =
             dismantleCharge +
             assemblyCharge +
             packingCharge +
             timeSlotCharge;
+
+        let runningTotal =
+            movingCharges +
+            addOnCharges;
 
         const breakdown = [
             {
@@ -715,32 +713,32 @@ const calculatePricing =
             });
         }
 
-        if (
-            extraMileageCharge >
-            0
-        ) {
-            breakdown.push({
-                label: `Extra trip mileage ×${extraTrips}`,
+        // if (
+        //     extraMileageCharge >
+        //     0
+        // ) {
+        //     breakdown.push({
+        //         label: `Extra trip mileage ×${extraTrips}`,
 
-                amount:
-                    roundMoney(
-                        extraMileageCharge
-                    )
-            });
-        }
+        //         amount:
+        //             roundMoney(
+        //                 extraMileageCharge
+        //             )
+        //     });
+        // }
 
-        if (
-            extraTripFees > 0
-        ) {
-            breakdown.push({
-                label: `Extra trip fee ×${extraTrips}`,
+        // if (
+        //     extraTripFees > 0
+        // ) {
+        //     breakdown.push({
+        //         label: `Extra trip fee ×${extraTrips}`,
 
-                amount:
-                    roundMoney(
-                        extraTripFees
-                    )
-            });
-        }
+        //         amount:
+        //             roundMoney(
+        //                 extraTripFees
+        //             )
+        //     });
+        // }
 
         /*
          * Parking charges remain hidden
@@ -823,12 +821,14 @@ const calculatePricing =
             ) {
                 const surchargeAmount =
                     roundMoney(
-                        runningTotal *
+                        movingCharges *
                         surcharge.rate
                     );
 
-                runningTotal +=
-                    surchargeAmount;
+                runningTotal =
+                    movingCharges +
+                    surchargeAmount +
+                    addOnCharges;
 
                 breakdown.push({
                     label:
@@ -846,12 +846,13 @@ const calculatePricing =
         ) {
             const discount =
                 roundMoney(
-                    runningTotal *
-                    0.2
+                    movingCharges * 0.2
                 );
 
-            runningTotal -=
-                discount;
+            runningTotal =
+                movingCharges -
+                discount +
+                addOnCharges;
 
             breakdown.push({
                 label:
@@ -863,29 +864,17 @@ const calculatePricing =
         }
 
         return {
-            total:
-                roundMoney(
-                    runningTotal
-                ),
+            total: roundMoney(runningTotal),
 
             breakdown,
 
             crewSize,
-            tripsNeeded,
 
-            multiTrip:
-                tripsNeeded > 1,
+            requiresContactSupport: false,
 
-            requiresContactSupport:
-                false,
+            pricingStatus: "calculated",
 
-            pricingStatus:
-                "calculated",
-
-            note:
-                tripsNeeded > 1
-                    ? `${tripsNeeded} van trips included in this price.`
-                    : ""
+            note: ""
         };
     };
 
