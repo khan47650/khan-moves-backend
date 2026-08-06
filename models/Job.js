@@ -200,6 +200,51 @@ const jobSchema = new mongoose.Schema(
             default: 0
         },
 
+        originalPrice: {
+            type: Number,
+            default: 0
+        },
+
+        adminPrice: {
+            type: Number,
+            default: null
+        },
+
+        priceBreakdown: {
+            type: Array,
+            default: []
+        },
+
+        pricingStatus: {
+            type: String,
+            default: ""
+        },
+
+        pricingNote: {
+            type: String,
+            default: ""
+        },
+
+        helperCount: {
+            type: Number,
+            default: 0
+        },
+
+        dismantleCount: {
+            type: Number,
+            default: 0
+        },
+
+        assemblyCount: {
+            type: Number,
+            default: 0
+        },
+
+        packingService: {
+            type: Boolean,
+            default: false
+        },
+
         specialInstructions: {
             type: String,
             default: ""

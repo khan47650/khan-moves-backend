@@ -740,10 +740,20 @@ const calculatePricing =
         //     });
         // }
 
-        /*
-         * Parking charges remain hidden
-         * from public breakdown.
-         */
+        if (pickupParkingCharge > 0) {
+            breakdown.push({
+                label: "Pickup parking adjustment",
+                amount: roundMoney(pickupParkingCharge)
+            });
+        }
+
+
+        if (deliveryParkingCharge > 0) {
+            breakdown.push({
+                label: "Delivery parking adjustment",
+                amount: roundMoney(deliveryParkingCharge)
+            });
+        }
 
         if (
             dismantleCharge > 0

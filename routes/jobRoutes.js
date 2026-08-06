@@ -5,6 +5,7 @@ const {
     rejectBooking,
     getAllJobs,
     getJob,
+    updateJob,
     updateJobStatus,
     cancelJob,
     moveJobToTrash,
@@ -30,6 +31,7 @@ router.get("/trash", getTrashJobs);
 router.get("/", getAllJobs);
 
 router.get("/:id", getJob);
+router.patch("/:id", updateJob);
 
 router.patch("/:id/status", updateJobStatus);
 router.patch("/:id/cancel", cancelJob);

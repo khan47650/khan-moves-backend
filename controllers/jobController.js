@@ -4,6 +4,10 @@ const Driver = require("../models/Driver");
 const Vehicle = require("../models/Vehicle");
 const sendEmail = require("../utils/sendEmail");
 const { sendWhatsApp } = require("../utils/sendWhatsApp");
+const {
+    calculatePricing
+} = require("../utils/bookingPriceCalculator");
+const Service = require("../models/Service");
 
 
 const releaseJobResources = async job => {
@@ -34,19 +38,50 @@ const releaseJobResources = async job => {
     await Promise.all(tasks);
 };
 
-const serviceMap = {
-    home: "Home Removal", furniture: "Furniture Move", furniture_move: "Furniture Move",
-    office: "Office Removal", office_removal: "Office Removal",
-    parcels: "Boxes & Parcels", boxes_parcels: "Boxes & Parcels",
-    vehicle: "Vehicle Parts", vehicle_parts: "Vehicle Parts",
-    pallets: "Pallets", packing: "Packing Service", packing_service: "Packing Service",
+const sanitizeItems = (rawItems = []) => {
+    return rawItems
+        .filter(item => item?.name && Number(item.quantity || 0) > 0)
+        .map(item => ({
+            itemId: item.itemId || item._id || null,
+            categoryId: item.categoryId || null,
+            categoryName: String(item.categoryName || "").trim(),
+            name: String(item.name).trim(),
+            volume: Math.max(0, Number(item.volume) || 0),
+            quantity: Math.max(
+                1,
+                Math.floor(Number(item.quantity) || 1)
+            ),
+            custom: Boolean(item.custom),
+            weight:
+                item.weight !== undefined && item.weight !== null
+                    ? Math.max(0, Number(item.weight) || 0)
+                    : null,
+            notes: String(item.notes || "").trim(),
+            dimensions: item.dimensions || undefined
+        }));
+};
+
+const getServiceLabel = async serviceSlug => {
+    if (!serviceSlug) return "Service";
+
+    const service = await Service.findOne({
+        slug: serviceSlug
+    }).select("label");
+
+    return service?.label || serviceSlug;
 };
 
 const timeSlotMap = {
-    early: "6:00 AM - 6:00 PM",
-    morning: "8:00 AM - 6:00 PM",
-    afternoon: "9:00 AM - 4:00 PM",
-    flexible: "Flexible Timing"
+    early: "6:00 AM – 6:00 PM",
+
+    morning: "8:00 AM – 6:00 PM",
+
+    nine_to_five: "9:00 AM – 5:00 PM",
+    nineToFive: "9:00 AM – 5:00 PM",
+
+    afternoon: "9:00 AM – 4:00 PM",
+
+    flexible: "I'm flexible with timing"
 };
 
 const formatTimeSlot = value => {
@@ -63,6 +98,8 @@ const createJobFromBooking = async (req, res) => {
         const existing = await Job.findOne({ booking: booking._id });
         if (existing) return res.status(409).json({ success: false, message: "Job already exists for this booking." });
 
+        // console.log("BOOKING BREAKDOWN");
+        // console.log(booking.priceBreakdown);
         const job = await Job.create({
             booking: booking._id,
             bookingRef: booking.bookingRef,
@@ -86,6 +123,23 @@ const createJobFromBooking = async (req, res) => {
             ).trim(),
 
             totalPrice: booking.totalPrice,
+
+            adminPrice: booking.adminPrice ?? null,
+
+            priceBreakdown: booking.priceBreakdown || [],
+
+            pricingStatus: booking.pricingStatus || "",
+
+            pricingNote: booking.pricingNote || "",
+
+            helperCount: booking.helperCount || 0,
+
+            dismantleCount: booking.dismantleCount || 0,
+
+            assemblyCount: booking.assemblyCount || 0,
+
+            packingService: booking.packingService || false,
+
             specialInstructions: booking.specialInstructions,
 
             status: "active",
@@ -103,7 +157,10 @@ const createJobFromBooking = async (req, res) => {
 
         // Send confirmation email to customer
         if (booking.customer?.email) {
-            const svcLabel = serviceMap[booking.serviceType] || booking.serviceType;
+            const svcLabel =
+                await getServiceLabel(
+                    booking.serviceType
+                );
             const html = `
             <!DOCTYPE html><html><head><meta charset="UTF-8"></head>
             <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f5">
@@ -130,7 +187,9 @@ const createJobFromBooking = async (req, res) => {
                             <tr><td style="font-size:11px;color:#888;padding-bottom:5px;width:110px;font-family:Arial,sans-serif">Booking Ref</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${booking.bookingRef}</td></tr>
                             <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Service</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${svcLabel}</td></tr>
                             <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Move Date</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${booking.dateType === "flexible" ? "Flexible dates" : booking.date || "—"}</td></tr>
-                            <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Time Slot</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif;text-transform:capitalize">${booking.timeSlot || "To be confirmed"}</td></tr>
+                            <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Time Slot</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif;text-transform:capitalize">${booking.dateType === "flexible"
+                    ? "I'm flexible with timing"
+                    : formatTimeSlot(booking.timeSlot)}</td></tr>
                             <tr><td style="font-size:11px;color:#888;font-family:Arial,sans-serif">Total Price</td><td style="font-size:11px;color:#C0392B;font-weight:700;font-family:Arial,sans-serif">£${(booking.totalPrice || 0).toFixed(2)}</td></tr>
                         </table>
                     </div>
@@ -155,6 +214,227 @@ const createJobFromBooking = async (req, res) => {
         res.status(201).json({ success: true, data: job });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+
+const updateJob = async (req, res) => {
+    try {
+        const job = await Job.findById(req.params.id);
+
+        if (!job) {
+            return res.status(404).json({
+                success: false,
+                message: "Job not found."
+            });
+        }
+
+        const body = req.body;
+        const postcodeRegex = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+
+        const pickup = {
+            ...(job.pickup?.toObject?.() || job.pickup || {}),
+            ...(body.pickup || {})
+        };
+
+        const delivery = {
+            ...(job.delivery?.toObject?.() || job.delivery || {}),
+            ...(body.delivery || {})
+        };
+
+        if (!postcodeRegex.test((pickup.postcode || "").trim())) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid pickup postcode."
+            });
+        }
+
+        if (!postcodeRegex.test((delivery.postcode || "").trim())) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid delivery postcode."
+            });
+        }
+
+        const items = Array.isArray(body.items)
+            ? sanitizeItems(body.items)
+            : sanitizeItems(
+                job.items.map(item => item.toObject?.() || item)
+            );
+
+        if (items.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: "At least one item is required."
+            });
+        }
+
+        const specialInstructions =
+            body.specialInstructions !== undefined
+                ? String(body.specialInstructions)
+                : job.specialInstructions || "";
+
+        if (specialInstructions.length > 450) {
+            return res.status(400).json({
+                success: false,
+                message: "Special instructions cannot exceed 450 characters."
+            });
+        }
+
+        const totalVolume = items.reduce(
+            (total, item) =>
+                total +
+                Number(item.volume || 0) *
+                Number(item.quantity || 1),
+            0
+        );
+
+        const pickupFloor = {
+            ...(
+                job.pickupFloor?.toObject?.() ||
+                job.pickupFloor ||
+                {}
+            ),
+            ...(body.pickupFloor || {})
+        };
+
+        const deliveryFloor = {
+            ...(
+                job.deliveryFloor?.toObject?.() ||
+                job.deliveryFloor ||
+                {}
+            ),
+            ...(body.deliveryFloor || {})
+        };
+
+        const dismantleCount =
+            body.dismantleCount !== undefined
+                ? Math.max(0, Number(body.dismantleCount) || 0)
+                : Number(job.dismantleCount) || 0;
+
+        const assemblyCount =
+            body.assemblyCount !== undefined
+                ? Math.max(0, Number(body.assemblyCount) || 0)
+                : Number(job.assemblyCount) || 0;
+
+        const helperCount =
+            body.helperCount !== undefined
+                ? Number(body.helperCount) > 0 ? 1 : 0
+                : Number(job.helperCount) > 0 ? 1 : 0;
+
+        const pricingData = {
+            distance:
+                body.distance !== undefined
+                    ? Math.max(0, Number(body.distance) || 0)
+                    : Math.max(0, Number(job.distance) || 0),
+
+            volume: totalVolume,
+
+            pickupFloor,
+            deliveryFloor,
+            helperCount,
+            dismantleCount,
+            assemblyCount,
+
+            packingService:
+                body.packingService !== undefined
+                    ? Boolean(body.packingService)
+                    : Boolean(job.packingService),
+
+            dateType: body.dateType || job.dateType,
+
+            date:
+                body.date !== undefined
+                    ? body.date
+                    : job.date,
+
+            timeSlot:
+                body.timeSlot !== undefined
+                    ? body.timeSlot
+                    : job.timeSlot
+        };
+
+        const estimatedDeliveryTime =
+            body.estimatedDeliveryTime !== undefined
+                ? String(
+                    body.estimatedDeliveryTime || ""
+                ).trim()
+                : job.estimatedDeliveryTime || "";
+
+        const pricingResult =
+            calculatePricing(pricingData);
+
+        const originalPrice =
+            pricingResult.total;
+
+        const adminPrice =
+            body.totalPrice !== undefined
+                ? Number(body.totalPrice)
+                : job.adminPrice;
+
+        const totalPrice =
+            adminPrice ?? originalPrice;
+
+        const breakdown =
+            pricingResult.breakdown;
+
+        job.serviceType =
+            body.serviceType || job.serviceType;
+        job.pickup = pickup;
+        job.delivery = delivery;
+        job.pickupFloor = pickupFloor;
+        job.deliveryFloor = deliveryFloor;
+        job.items = items;
+        job.totalVolume = totalVolume;
+        job.distance = pricingData.distance;
+        job.estimatedDeliveryTime =
+            estimatedDeliveryTime;
+
+        job.dateType = pricingData.dateType;
+        job.date = pricingData.date;
+        job.timeSlot = pricingData.timeSlot;
+        job.helperCount = helperCount;
+        job.dismantleCount = dismantleCount;
+        job.assemblyCount = assemblyCount;
+        job.packingService = pricingData.packingService;
+        job.specialInstructions = specialInstructions;
+        job.totalPrice =
+            totalPrice;
+        job.originalPrice =
+            originalPrice;
+
+        job.adminPrice =
+            adminPrice;
+
+        job.priceBreakdown =
+            breakdown;
+
+        job.pricingStatus =
+            pricingResult.pricingStatus;
+
+        job.pricingNote =
+            body.totalPrice !== undefined
+                ? `Admin price override. System calculated: £${pricingResult.total}`
+                : (pricingResult.note || "");
+
+        if (body.customer) {
+            job.customer = {
+                ...(job.customer?.toObject?.() || job.customer || {}),
+                ...body.customer
+            };
+        }
+
+        await job.save();
+
+        return res.json({
+            success: true,
+            data: job
+        });
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
     }
 };
 
@@ -395,13 +675,18 @@ const cancelJob = async (req, res) => {
             }
         );
 
+        const serviceLabel =
+            await getServiceLabel(
+                job.serviceType
+            );
         if (assignedDriver?.phone) {
+
             const cancellationMessage =
                 `Hello ${assignedDriver.name},\n\n` +
                 `⚠️ *JOB CANCELLED*\n\n` +
                 `The following assigned job has been cancelled:\n\n` +
                 `*Job Ref:* ${job.bookingRef}\n` +
-                `*Service:* ${serviceMap[job.serviceType] || job.serviceType}\n` +
+                `*Service:* ${serviceLabel}\n` +
                 `*Date:* ${job.dateType === "flexible"
                     ? "Flexible"
                     : job.date || "—"
@@ -488,7 +773,7 @@ const cancelJob = async (req, res) => {
                             </td>
 
                             <td style="padding-bottom:7px;color:#1a1a1a;font-size:11px;font-weight:600">
-                                ${serviceMap[job.serviceType] || job.serviceType || "—"}
+                               ${serviceLabel}
                             </td>
                         </tr>
 
@@ -807,11 +1092,15 @@ const assignJob = async (req, res) => {
                     : job.assignedVehicleReg ||
                     "Not assigned";
 
+            const serviceLabel =
+                await getServiceLabel(
+                    job.serviceType
+                );
             const message =
                 `Hello ${driver.name},\n\n` +
                 `You have been assigned a new job!\n\n` +
                 `*Job Ref:* ${job.bookingRef}\n` +
-                `*Service:* ${serviceMap[job.serviceType] || job.serviceType}\n` +
+                `*Service:* ${serviceLabel}\n` +
                 `*Date:* ${job.dateType === "flexible"
                     ? "Flexible"
                     : job.date || "—"
@@ -905,7 +1194,10 @@ const completeJobEmail = async (req, res) => {
         const job = await Job.findById(req.params.id);
         if (!job) return res.status(404).json({ success: false, message: "Job not found." });
         if (!job.customer?.email) return res.json({ success: true, message: "No email on file." });
-
+        const serviceLabel =
+            await getServiceLabel(
+                job.serviceType
+            );
         const html = `
         <!DOCTYPE html><html><head><meta charset="UTF-8"></head>
         <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f5">
@@ -930,7 +1222,7 @@ const completeJobEmail = async (req, res) => {
                 <div style="background:#f7f7f7;border-radius:8px;padding:16px 20px;margin-bottom:20px">
                     <table style="width:100%;border-collapse:collapse">
                         <tr><td style="font-size:11px;color:#888;padding-bottom:5px;width:110px;font-family:Arial,sans-serif">Booking Ref</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${job.bookingRef}</td></tr>
-                        <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Service</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${serviceMap[job.serviceType] || job.serviceType}</td></tr>
+                        <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Service</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${serviceLabel}</td></tr>
                         <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Route</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${job.pickup?.postcode || ""} → ${job.delivery?.postcode || ""}</td></tr>
                         <tr><td style="font-size:11px;color:#888;font-family:Arial,sans-serif">Total</td><td style="font-size:11px;color:#C0392B;font-weight:700;font-family:Arial,sans-serif">£${(job.totalPrice || 0).toFixed(2)}</td></tr>
                     </table>
@@ -1235,6 +1527,7 @@ module.exports = {
     rejectBooking,
     getAllJobs,
     getJob,
+    updateJob,
     updateJobStatus,
     cancelJob,
     moveJobToTrash,
