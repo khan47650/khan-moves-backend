@@ -738,95 +738,72 @@ height:35px;
 "
 ></div>
 <table
-width="100%"
-cellpadding="0"
-cellspacing="0"
-style="
-margin-top:10px;
-"
+    width="100%"
+    cellpadding="0"
+    cellspacing="0"
+    style="margin-top:10px;"
 >
+    <tr>
+        <td
+            align="center"
+            style="
+                padding:0;
+                font-size:0;
+            "
+        >
 
-<tr>
+            <img
+                src="${images.banner}"
+                alt="Khan Moves"
+                draggable="false"
+                style="
+                    width:31.5%;
+                    height:140px;
+                    object-fit:cover;
+                    border-radius:8px;
+                    display:inline-block;
+                    vertical-align:top;
+                    margin-right:2%;
+                    user-select:none;
+                    -webkit-user-drag:none;
+                "
+            />
 
-<td
-align="center"
-style="
-padding-bottom:20px;
-"
->
+            <img
+                src="${images.movers}"
+                alt="Professional Movers"
+                draggable="false"
+                style="
+                    width:31.5%;
+                    height:140px;
+                    object-fit:cover;
+                    border-radius:8px;
+                    display:inline-block;
+                    vertical-align:top;
+                    margin-right:2%;
+                    user-select:none;
+                    -webkit-user-drag:none;
+                "
+            />
 
-<img
+            <img
+                src="${images.van}"
+                alt="Moving Van"
+                draggable="false"
+                style="
+                    width:31.5%;
+                    height:140px;
+                    object-fit:cover;
+                    border-radius:8px;
+                    display:inline-block;
+                    vertical-align:top;
+                    user-select:none;
+                    -webkit-user-drag:none;
+                "
+            />
 
-src="${images.banner}"
-
-alt="Khan Moves"
-
-style="
-width:100%;
-max-width:630px;
-border-radius:12px;
-display:block;
-"
-
->
-
-</td>
-
-</tr>
-
-<tr>
-
-<td
-align="center"
-style="
-padding-bottom:20px;
-"
->
-
-<img
-
-src="${images.movers}"
-
-alt="Professional Movers"
-
-style="
-width:100%;
-max-width:630px;
-border-radius:12px;
-display:block;
-"
-
->
-
-</td>
-
-</tr>
-
-<tr>
-
-<td
-align="center"
->
-
-<img
-
-src="${images.van}"
-
-alt="Moving Van"
-
-style="
-width:100%;
-max-width:630px;
-border-radius:12px;
-display:block;
-"
-
->
-
-</td>
-
-</tr>
-
+        </td>
+    </tr>
 </table>
 
 <div
