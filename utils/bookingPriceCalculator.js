@@ -35,6 +35,16 @@ const PRICING_CONFIG = {
     // EXTRA_TRIP_FEE: 30
 };
 
+const BOX_PACKING_PRICES = {
+
+    "Small Box": 2,
+
+    "Medium Box": 3,
+
+    "Large Box": 4
+
+};
+
 const DAY_IN_MS =
     24 * 60 * 60 * 1000;
 
@@ -96,6 +106,7 @@ const getMileageCharge = (
         config.MILE_90_PLUS
     );
 };
+
 
 const getVolumeCharge = (
     volumeM3,
@@ -369,6 +380,7 @@ const getDateSurcharge =
         };
     };
 
+
 const calculateCoreCharges = ({
     distance,
     volume,
@@ -476,6 +488,12 @@ const calculatePricing =
             crewSize
             ];
 
+        const isBoxesService = [
+            "boxes",
+            "boxes_parcels",
+            "boxes_and_parcels"
+        ].includes(data.serviceType);
+
         const tripsNeeded =
             Math.max(
                 1,
@@ -485,36 +503,6 @@ const calculatePricing =
                         .SINGLE_TRIP_MAX_M3
                 )
             );
-
-        // const requiresContactSupport =
-        //     volume >
-        //     PRICING_CONFIG
-        //         .SINGLE_TRIP_MAX_M3 &&
-        //     distance >
-        //     PRICING_CONFIG
-        //         .LOCAL_MULTI_TRIP_MAX_MILES;
-
-        // if (
-        //     requiresContactSupport
-        // ) {
-        //     return {
-        //         total: null,
-        //         breakdown: [],
-
-        //         crewSize,
-        //         tripsNeeded,
-        //         multiTrip: false,
-
-        //         requiresContactSupport:
-        //             true,
-
-        //         pricingStatus:
-        //             "contact_support",
-
-        //         note:
-        //             CONTACT_SUPPORT_MESSAGE
-        //     };
-        // }
 
         const charges =
             calculateCoreCharges({
@@ -529,22 +517,6 @@ const calculatePricing =
                     data.deliveryFloor
             });
 
-        // const extraTrips =
-        //     Math.max(
-        //         tripsNeeded - 1,
-        //         0
-        //     );
-
-        // const extraMileageCharge =
-        //     extraTrips *
-        //     distance *
-        //     2 *
-        //     config.MILE_0_50;
-
-        // const extraTripFees =
-        //     extraTrips *
-        //     PRICING_CONFIG
-        //         .EXTRA_TRIP_FEE;
 
         const pickupParkingCharge =
             getParkingCharge(
@@ -574,10 +546,27 @@ const calculatePricing =
                 data.assemblyCount
             ) * 30;
 
-        const packingCharge =
-            data.packingService
-                ? 20
-                : 0;
+        let packingCharge = 0;
+        if (isBoxesService) {
+
+            packingCharge =
+                (BOX_PACKING_PRICES["Small Box"] *
+                    Number(data.smallBoxPackingCount || 0)) +
+
+                (BOX_PACKING_PRICES["Medium Box"] *
+                    Number(data.mediumBoxPackingCount || 0)) +
+
+                (BOX_PACKING_PRICES["Large Box"] *
+                    Number(data.largeBoxPackingCount || 0));
+
+        } else {
+
+            packingCharge =
+                data.packingService
+                    ? 20
+                    : 0;
+
+        }
 
         const timeSlotCharge =
             getTimeSlotCharge(
@@ -590,9 +579,11 @@ const calculatePricing =
             deliveryParkingCharge;
 
         const addOnCharges =
-            dismantleCharge +
-            assemblyCharge +
-            packingCharge +
+            (isBoxesService
+                ? packingCharge
+                : dismantleCharge +
+                assemblyCharge +
+                packingCharge) +
             timeSlotCharge;
 
         let runningTotal =
@@ -713,32 +704,6 @@ const calculatePricing =
             });
         }
 
-        // if (
-        //     extraMileageCharge >
-        //     0
-        // ) {
-        //     breakdown.push({
-        //         label: `Extra trip mileage ×${extraTrips}`,
-
-        //         amount:
-        //             roundMoney(
-        //                 extraMileageCharge
-        //             )
-        //     });
-        // }
-
-        // if (
-        //     extraTripFees > 0
-        // ) {
-        //     breakdown.push({
-        //         label: `Extra trip fee ×${extraTrips}`,
-
-        //         amount:
-        //             roundMoney(
-        //                 extraTripFees
-        //             )
-        //     });
-        // }
 
         if (pickupParkingCharge > 0) {
             breakdown.push({
@@ -755,48 +720,86 @@ const calculatePricing =
             });
         }
 
-        if (
-            dismantleCharge > 0
-        ) {
-            breakdown.push({
-                label: `Dismantling ×${positiveNumber(
-                    data.dismantleCount
-                )}`,
 
-                amount:
-                    roundMoney(
-                        dismantleCharge
-                    )
+
+        if (isBoxesService) {
+
+            const packingOptions = [
+                {
+                    name: "Small Box",
+                    field: "smallBoxPackingCount"
+                },
+                {
+                    name: "Medium Box",
+                    field: "mediumBoxPackingCount"
+                },
+                {
+                    name: "Large Box",
+                    field: "largeBoxPackingCount"
+                }
+            ];
+
+            packingOptions.forEach(box => {
+
+                const quantity =
+                    Number(data[box.field] || 0);
+
+                const price =
+                    BOX_PACKING_PRICES[box.name];
+
+                if (quantity <= 0) {
+                    return;
+                }
+
+                breakdown.push({
+
+                    label:
+                        `${box.name} packing ×${quantity}`,
+
+                    amount:
+                        roundMoney(
+                            price * quantity
+                        )
+
+                });
+
             });
+
         }
 
-        if (
-            assemblyCharge > 0
-        ) {
-            breakdown.push({
-                label: `Assembly ×${positiveNumber(
-                    data.assemblyCount
-                )}`,
+        if (!isBoxesService) {
 
-                amount:
-                    roundMoney(
-                        assemblyCharge
-                    )
-            });
-        }
+            if (dismantleCharge > 0) {
 
-        if (
-            packingCharge > 0
-        ) {
-            breakdown.push({
-                label:
-                    "Packing service",
+                breakdown.push({
+                    label: `Dismantling ×${positiveNumber(
+                        data.dismantleCount
+                    )}`,
+                    amount: roundMoney(dismantleCharge)
+                });
 
-                amount:
-                    roundMoney(
-                        packingCharge
-                    )
-            });
+            }
+
+            if (assemblyCharge > 0) {
+
+                breakdown.push({
+                    label: `Assembly ×${positiveNumber(
+                        data.assemblyCount
+                    )}`,
+                    amount: roundMoney(assemblyCharge)
+                });
+
+            }
+
+            if (packingCharge > 0) {
+
+                breakdown.push({
+                    label: "Packing service",
+                    amount: roundMoney(packingCharge)
+                });
+
+            }
+
         }
 
         if (
@@ -887,6 +890,7 @@ const calculatePricing =
             note: ""
         };
     };
+
 
 const calculateTotalPrice =
     data =>

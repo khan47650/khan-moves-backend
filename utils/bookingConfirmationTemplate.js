@@ -39,28 +39,24 @@ const formatTimeSlot = slot => {
 
 };
 
-const getBaseUrl = () =>
-    process.env.NODE_ENV === "production"
-        ? "https://khan-moves-backend.vercel.app"
-        : "http://localhost:5000";
+const FRONTEND_URL =
+    "https://khan-moves-frontend.vercel.app/";
 
 const getImages = () => {
-
-    const BASE_URL = getBaseUrl();
 
     return {
 
         logo:
-            `${BASE_URL}/uploads/Khan_Logo_transparent.png`,
+            `${FRONTEND_URL}/Khan_Logo_transparent.png`,
 
         banner:
-            `${BASE_URL}/uploads/templ_1.png`,
+            `${FRONTEND_URL}/templ_1.png`,
 
         movers:
-            `${BASE_URL}/uploads/templ_2.png`,
+            `${FRONTEND_URL}/templ_2.png`,
 
         van:
-            `${BASE_URL}/uploads/templ_3.png`
+            `${FRONTEND_URL}/templ_3.png`
 
     };
 

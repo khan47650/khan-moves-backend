@@ -140,6 +140,15 @@ const createJobFromBooking = async (req, res) => {
 
             packingService: booking.packingService || false,
 
+            smallBoxPackingCount:
+                booking.smallBoxPackingCount || 0,
+
+            mediumBoxPackingCount:
+                booking.mediumBoxPackingCount || 0,
+
+            largeBoxPackingCount:
+                booking.largeBoxPackingCount || 0,
+
             specialInstructions: booking.specialInstructions,
 
             status: "active",
@@ -341,6 +350,33 @@ const updateJob = async (req, res) => {
                     ? Boolean(body.packingService)
                     : Boolean(job.packingService),
 
+            smallBoxPackingCount:
+                body.smallBoxPackingCount !== undefined
+                    ? Math.max(
+                        0,
+                        Number(body.smallBoxPackingCount) || 0
+                    )
+                    : Number(job.smallBoxPackingCount) || 0,
+
+            mediumBoxPackingCount:
+                body.mediumBoxPackingCount !== undefined
+                    ? Math.max(
+                        0,
+                        Number(body.mediumBoxPackingCount) || 0
+                    )
+                    : Number(job.mediumBoxPackingCount) || 0,
+
+            largeBoxPackingCount:
+                body.largeBoxPackingCount !== undefined
+                    ? Math.max(
+                        0,
+                        Number(body.largeBoxPackingCount) || 0
+                    )
+                    : Number(job.largeBoxPackingCount) || 0,
+
+            serviceType:
+                body.serviceType || job.serviceType,
+
             dateType: body.dateType || job.dateType,
 
             date:
@@ -397,6 +433,14 @@ const updateJob = async (req, res) => {
         job.dismantleCount = dismantleCount;
         job.assemblyCount = assemblyCount;
         job.packingService = pricingData.packingService;
+        job.smallBoxPackingCount =
+            pricingData.smallBoxPackingCount;
+
+        job.mediumBoxPackingCount =
+            pricingData.mediumBoxPackingCount;
+
+        job.largeBoxPackingCount =
+            pricingData.largeBoxPackingCount;
         job.specialInstructions = specialInstructions;
         job.totalPrice =
             totalPrice;

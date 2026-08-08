@@ -117,6 +117,24 @@ const createBooking = async (req, res) => {
             dismantleCount,
             assemblyCount,
             packingService: Boolean(body.packingService),
+            smallBoxPackingCount:
+                Math.max(
+                    0,
+                    Number(body.smallBoxPackingCount) || 0
+                ),
+
+            mediumBoxPackingCount:
+                Math.max(
+                    0,
+                    Number(body.mediumBoxPackingCount) || 0
+                ),
+
+            largeBoxPackingCount:
+                Math.max(
+                    0,
+                    Number(body.largeBoxPackingCount) || 0
+                ),
+            serviceType: body.serviceType,
             dateType: body.dateType || "specific",
             date: body.date || "",
             timeSlot: body.timeSlot || ""
@@ -178,6 +196,24 @@ const createBooking = async (req, res) => {
             packingService:
                 Boolean(
                     body.packingService
+                ),
+
+            smallBoxPackingCount:
+                Math.max(
+                    0,
+                    Number(body.smallBoxPackingCount) || 0
+                ),
+
+            mediumBoxPackingCount:
+                Math.max(
+                    0,
+                    Number(body.mediumBoxPackingCount) || 0
+                ),
+
+            largeBoxPackingCount:
+                Math.max(
+                    0,
+                    Number(body.largeBoxPackingCount) || 0
                 ),
 
             specialInstructions,
@@ -410,34 +446,6 @@ const updateBooking = async (req, res) => {
             ...(body.deliveryFloor || {})
         };
 
-        // const dismantleItems = Array.isArray(body.dismantleItems)
-        //     ? sanitizeAddOnItems(body.dismantleItems)
-        //     : sanitizeAddOnItems(
-        //         booking.dismantleItems?.map(
-        //             item => item.toObject?.() || item
-        //         ) || []
-        //     );
-
-        // const assemblyItems = Array.isArray(body.assemblyItems)
-        //     ? sanitizeAddOnItems(body.assemblyItems)
-        //     : sanitizeAddOnItems(
-        //         booking.assemblyItems?.map(
-        //             item => item.toObject?.() || item
-        //         ) || []
-        //     );
-
-        // const dismantleCount = Array.isArray(body.dismantleItems)
-        //     ? getItemsCount(dismantleItems)
-        //     : body.dismantleCount !== undefined
-        //         ? Math.max(0, Number(body.dismantleCount) || 0)
-        //         : Number(booking.dismantleCount) || 0;
-
-        // const assemblyCount = Array.isArray(body.assemblyItems)
-        //     ? getItemsCount(assemblyItems)
-        //     : body.assemblyCount !== undefined
-        //         ? Math.max(0, Number(body.assemblyCount) || 0)
-        //         : Number(booking.assemblyCount) || 0;
-
         const dismantleCount =
             body.dismantleCount !== undefined
                 ? Math.max(0, Number(body.dismantleCount) || 0)
@@ -471,6 +479,38 @@ const updateBooking = async (req, res) => {
                 body.packingService !== undefined
                     ? Boolean(body.packingService)
                     : Boolean(booking.packingService),
+            smallBoxPackingCount:
+                body.smallBoxPackingCount !== undefined
+                    ? Math.max(
+                        0,
+                        Number(body.smallBoxPackingCount) || 0
+                    )
+                    : Number(
+                        booking.smallBoxPackingCount
+                    ) || 0,
+
+            mediumBoxPackingCount:
+                body.mediumBoxPackingCount !== undefined
+                    ? Math.max(
+                        0,
+                        Number(body.mediumBoxPackingCount) || 0
+                    )
+                    : Number(
+                        booking.mediumBoxPackingCount
+                    ) || 0,
+
+            largeBoxPackingCount:
+                body.largeBoxPackingCount !== undefined
+                    ? Math.max(
+                        0,
+                        Number(body.largeBoxPackingCount) || 0
+                    )
+                    : Number(
+                        booking.largeBoxPackingCount
+                    ) || 0,
+
+            serviceType:
+                body.serviceType || booking.serviceType,
 
             dateType: body.dateType || booking.dateType,
 
@@ -528,6 +568,14 @@ const updateBooking = async (req, res) => {
         booking.dismantleCount = dismantleCount;
         booking.assemblyCount = assemblyCount;
         booking.packingService = pricingData.packingService;
+        booking.smallBoxPackingCount =
+            pricingData.smallBoxPackingCount;
+
+        booking.mediumBoxPackingCount =
+            pricingData.mediumBoxPackingCount;
+
+        booking.largeBoxPackingCount =
+            pricingData.largeBoxPackingCount;
         booking.specialInstructions = specialInstructions;
         booking.totalPrice =
             totalPrice;

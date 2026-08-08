@@ -245,6 +245,24 @@ const jobSchema = new mongoose.Schema(
             default: false
         },
 
+        smallBoxPackingCount: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
+
+        mediumBoxPackingCount: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
+
+        largeBoxPackingCount: {
+            type: Number,
+            default: 0,
+            min: 0
+        },
+
         specialInstructions: {
             type: String,
             default: ""
