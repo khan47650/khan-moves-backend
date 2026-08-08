@@ -47,7 +47,7 @@ const getImages = () => {
     return {
 
         logo:
-            `${FRONTEND_URL}/Khan_Logo_transparent.png`,
+            `${FRONTEND_URL}/khan_moves_white_logo.png`,
 
         banner:
             `${FRONTEND_URL}/templ_1.png`,
