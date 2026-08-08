@@ -309,7 +309,6 @@ ${booking.customer?.name || "there"}
 </b>,
 
 <br/><br/>
-
 Great to see you!
 
 Thank you for choosing
@@ -318,17 +317,19 @@ Thank you for choosing
 for your move from
 
 <b>
-
-${booking.pickup?.postcode}
-
+    ${booking.pickup?.address || ""}
+    ${booking.pickup?.town ? `, ${booking.pickup.town}` : ""}
+    ${booking.pickup?.region ? `, ${booking.pickup.region}` : ""}
+    ${booking.pickup?.postcode ? `, ${booking.pickup.postcode}` : ""}
 </b>
 
 to
 
 <b>
-
-${booking.delivery?.postcode}
-
+    ${booking.delivery?.address || ""}
+    ${booking.delivery?.town ? `, ${booking.delivery.town}` : ""}
+    ${booking.delivery?.region ? `, ${booking.delivery.region}` : ""}
+    ${booking.delivery?.postcode ? `, ${booking.delivery.postcode}` : ""}
 </b>.
 
 Our operations team is now reviewing your booking and will confirm availability shortly.
@@ -860,7 +861,7 @@ our friendly team is available every day from
 
 <a
 
-href="tel:01216472859"
+href="tel:07424153126"
 
 style="
 display:inline-block;
@@ -938,21 +939,21 @@ style="margin:0;"
 >
 
 <a
-href="tel:01216472859"
+href="tel:07424153126"
 style="
 color:#C0392B;
 text-decoration:none;
 "
 >
 
-0121 647 2859
+07424 153126
 
 </a>
 
 &nbsp;&nbsp;|&nbsp;&nbsp;
 
 <a
-href="https://wa.me/447409797860"
+href="https://wa.me/447424153126"
 style="
 color:#C0392B;
 text-decoration:none;
