@@ -4,9 +4,15 @@ async function sendEmail(to, subject, html, attachments = []) {
   try {
     const emailData = {
       sender: {
-        email: "right2abdullah@gmail.com",
+        email: "khanmoves@khanmoves.com",
         name: "Khan Moves",
       },
+
+      replyTo: {
+        email: "khanmovesuk@gmail.com",
+        name: "Khan Moves",
+      },
+
       to: [{ email: to }],
       subject,
       htmlContent: html,
@@ -34,7 +40,10 @@ async function sendEmail(to, subject, html, attachments = []) {
     console.log("Brevo email sent:", response.data);
     return true;
   } catch (err) {
-    console.error("Brevo email send error:", err.response?.data || err.message);
+    console.error(
+      "Brevo email send error:",
+      err.response?.data || err.message
+    );
     return false;
   }
 }
