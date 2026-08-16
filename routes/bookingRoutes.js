@@ -14,19 +14,20 @@ const {
     getInvoiceBookings,
 } = require("../controllers/bookingController");
 
+const { protect, adminOnly } = require("../middleware/authMiddleware");
 
 router.post("/", createBooking);
 
-router.get("/", getAllBookings);
+// ADMIN ONLY
+router.get("/", protect, adminOnly, getAllBookings);
+router.get("/invoices", protect, adminOnly, getInvoiceBookings);
+router.get("/ref/:bookingRef", protect, adminOnly, getBookingByRef);
+router.get("/:id", protect, adminOnly, getBooking);
 
-// invoice bookings only
-router.get("/invoices", getInvoiceBookings);
-router.get("/ref/:bookingRef", getBookingByRef);
-router.get("/:id", getBooking);
-router.patch("/:id/status", updateBookingStatus);
-router.patch("/:id/price", updateBookingPrice);
-router.patch("/:id", updateBooking);
-router.post("/:id/send-invoice", sendInvoice);
-router.delete("/:id", deleteBooking);
+router.patch("/:id/status", protect, adminOnly, updateBookingStatus);
+router.patch("/:id/price", protect, adminOnly, updateBookingPrice);
+router.patch("/:id", protect, adminOnly, updateBooking);
+router.post("/:id/send-invoice", protect, adminOnly, sendInvoice);
+router.delete("/:id", protect, adminOnly, deleteBooking);
 
 module.exports = router;
