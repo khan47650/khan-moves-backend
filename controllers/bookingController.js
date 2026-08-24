@@ -708,6 +708,36 @@ const updateBookingPrice = async (req, res) => {
     }
 };
 
+
+const formatWhatsAppNumber = (phone) => {
+    const number = String(phone || "").replace(/\D/g, "");
+
+    if (!number) return "";
+
+    // Already Pakistani country code
+    if (number.startsWith("92")) {
+        return number;
+    }
+
+    // Already UK country code
+    if (number.startsWith("44")) {
+        return number;
+    }
+
+    // Pakistani mobile: 3XXXXXXXXX
+    if (/^3\d{9}$/.test(number)) {
+        return `92${number}`;
+    }
+
+    // UK local number: 0XXXXXXXXXX
+    if (number.startsWith("0")) {
+        return `44${number.slice(1)}`;
+    }
+
+    // Other international numbers
+    return number;
+};
+
 // POST /api/bookings/:id/send-invoice
 
 const sendInvoice = async (req, res) => {
@@ -736,11 +766,11 @@ const sendInvoice = async (req, res) => {
 
         const hasEmail = !!booking.customer?.email;
 
-        const phone = (
+        const phone = formatWhatsAppNumber(
             booking.customer?.whatsapp ||
             booking.customer?.phone ||
             ""
-        ).replace(/\D/g, "");
+        );
 
         const hasWhatsapp = !!phone;
 

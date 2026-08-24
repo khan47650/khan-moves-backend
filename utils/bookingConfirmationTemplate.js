@@ -62,31 +62,10 @@ const getImages = () => {
 
 };
 
-const getStaticMapUrl = booking => {
-
-    if (
-        !booking.pickup?.lat ||
-        !booking.delivery?.lat
-    ) {
-        return "";
-    }
-
-    return (
-        `https://staticmap.openstreetmap.de/staticmap.php` +
-        `?size=900x320` +
-        `&zoom=8` +
-        `&markers=${booking.pickup.lat},${booking.pickup.lng},red-pushpin` +
-        `&markers=${booking.delivery.lat},${booking.delivery.lng},green-pushpin`
-    );
-
-};
 
 module.exports = booking => {
 
     const images = getImages();
-
-    const mapUrl =
-        getStaticMapUrl(booking);
 
     return `
 
@@ -335,32 +314,6 @@ to
 Our operations team is now reviewing your booking and will confirm availability shortly.
 
 </p>
-${mapUrl ? `
-
-<div
-style="
-margin-top:35px;
-"
->
-
-<img
-
-src="${mapUrl}"
-
-alt="Route Map"
-
-style="
-width:100%;
-border-radius:14px;
-display:block;
-border:1px solid #e6e6e6;
-"
-
->
-
-</div>
-
-` : ""}
 
 <div
 style="
@@ -861,7 +814,7 @@ our friendly team is available every day from
 
 <a
 
-href="tel:07424153126"
+href="tel:07869416748"
 
 style="
 display:inline-block;
@@ -939,21 +892,21 @@ style="margin:0;"
 >
 
 <a
-href="tel:07424153126"
+href="tel:07869416748"
 style="
 color:#C0392B;
 text-decoration:none;
 "
 >
 
-07424 153126
+07869 416748
 
 </a>
 
 &nbsp;&nbsp;|&nbsp;&nbsp;
 
 <a
-href="https://wa.me/447424153126"
+href="https://wa.me/447869416748"
 style="
 color:#C0392B;
 text-decoration:none;
