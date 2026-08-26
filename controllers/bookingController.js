@@ -260,7 +260,9 @@ const createBooking = async (req, res) => {
                 await sendEmail(
                     booking.customer.email,
                     `Booking Received - ${booking.bookingRef}`,
-                    html
+                    html,
+                    [],
+                    "noreply"
                 );
 
             } catch (emailError) {
@@ -835,7 +837,8 @@ Thank you for choosing Khan Moves.`;
                     booking.customer.email,
                     `Khan Moves Invoice - ${booking.bookingRef}`,
                     html,
-                    attachments
+                    attachments,
+                    "bookings"
                 );
 
             }
@@ -884,7 +887,8 @@ Thank you for choosing Khan Moves.`;
                 booking.customer.email,
                 `Khan Moves Invoice - ${booking.bookingRef}`,
                 html,
-                attachments
+                attachments,
+                "bookings"
             );
 
             return res.json({

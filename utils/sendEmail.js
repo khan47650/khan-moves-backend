@@ -1,50 +1,83 @@
-const axios = require("axios");
+const nodemailer = require("nodemailer");
 
-async function sendEmail(to, subject, html, attachments = []) {
+const transporter = nodemailer.createTransport({
+  host: process.env.ZOHO_SMTP_HOST,
+  port: Number(process.env.ZOHO_SMTP_PORT),
+  secure: true,
+  auth: {
+    user: process.env.ZOHO_SMTP_USER,
+    pass: process.env.ZOHO_SMTP_PASSWORD,
+  },
+});
+
+/**
+ * Send email using Zoho SMTP
+ *
+ * @param {string} to - Receiver email
+ * @param {string} subject - Email subject
+ * @param {string} html - Email HTML
+ * @param {Array} attachments - Email attachments
+ * @param {string} fromType - "info" | "noreply" | "bookings"
+ */
+async function sendEmail(
+  to,
+  subject,
+  html,
+  attachments = [],
+  fromType = "info"
+) {
   try {
-    const emailData = {
-      sender: {
-        email: "khanmoves@khanmoves.com",
-        name: "Khan Moves",
-      },
+    let fromEmail;
+    let fromName = "Khan Moves";
 
-      replyTo: {
-        email: "khanmovesuk@gmail.com",
-        name: "Khan Moves",
-      },
+    switch (fromType) {
+      case "noreply":
+        fromEmail = process.env.ZOHO_FROM_NOREPLY;
+        break;
 
-      to: [{ email: to }],
-      subject,
-      htmlContent: html,
-    };
+      case "bookings":
+        fromEmail = process.env.ZOHO_FROM_BOOKINGS;
+        break;
 
-    if (attachments.length > 0) {
-      emailData.attachment = attachments.map((file) => ({
-        name: file.filename,
-        content: file.content.toString("base64"),
-      }));
+      case "info":
+      default:
+        fromEmail = process.env.ZOHO_FROM_INFO;
+        break;
     }
 
-    const response = await axios.post(
-      "https://api.brevo.com/v3/smtp/email",
-      emailData,
-      {
-        headers: {
-          accept: "application/json",
-          "api-key": process.env.BREVO_API_KEY,
-          "content-type": "application/json",
-        },
-      }
+    const mailOptions = {
+      from: {
+        name: fromName,
+        address: fromEmail,
+      },
+
+      to,
+
+      subject,
+
+      html,
+
+      attachments: attachments.map((file) => ({
+        filename: file.filename,
+        content: file.content,
+      })),
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+
+    console.log(
+      `Email sent successfully from ${fromEmail}:`,
+      info.messageId
     );
 
-    console.log("Brevo email sent:", response.data);
     return true;
   } catch (err) {
     console.error(
-      "Brevo email send error:",
-      err.response?.data || err.message
+      "Zoho email send error:",
+      err.response || err.message
     );
-    return false;
+
+    throw err;
   }
 }
 

@@ -120,7 +120,9 @@ const sendWelcomeEmail = async user => {
     await sendEmail(
         user.email,
         "Welcome to Khan Moves",
-        html
+        html,
+        [],
+        "info"
     );
 };
 
@@ -184,7 +186,9 @@ const sendTemporaryPasswordEmail = async (
     await sendEmail(
         user.email,
         "Your New Khan Moves Password",
-        html
+        html,
+        [],
+        "info"
     );
 };
 
