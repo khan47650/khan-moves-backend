@@ -726,20 +726,29 @@ const formatWhatsAppNumber = (phone) => {
         return number;
     }
 
-    // Pakistani mobile: 3XXXXXXXXX
+    // Pakistani local mobile: 03XXXXXXXXX
+    if (/^03\d{9}$/.test(number)) {
+        return `92${number.slice(1)}`;
+    }
+
+    // Pakistani mobile without 0: 3XXXXXXXXX
     if (/^3\d{9}$/.test(number)) {
         return `92${number}`;
     }
 
-    // UK local number: 0XXXXXXXXXX
-    if (number.startsWith("0")) {
+    // UK local mobile: 07XXXXXXXXX
+    if (/^07\d{9}$/.test(number)) {
         return `44${number.slice(1)}`;
+    }
+
+    // UK mobile without 0: 7XXXXXXXXX
+    if (/^7\d{9}$/.test(number)) {
+        return `44${number}`;
     }
 
     // Other international numbers
     return number;
 };
-
 // POST /api/bookings/:id/send-invoice
 
 const sendInvoice = async (req, res) => {
