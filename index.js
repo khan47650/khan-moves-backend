@@ -10,6 +10,7 @@ const jobRoutes = require("./routes/jobRoutes");
 const expenseRoutes = require("./routes/expenseRoutes");
 const toolRoutes = require("./routes/toolRoutes");
 const authRoutes = require("./routes/authRoutes");
+const blogRoutes = require("./routes/blogRoutes");
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use("/api/jobs", jobRoutes);
 app.use("/api/expenses", expenseRoutes);
 app.use("/api/tools", toolRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/blogs", blogRoutes);
 
 const PORT = process.env.PORT || 5000;
 
