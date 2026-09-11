@@ -254,8 +254,10 @@ const createBooking = async (req, res) => {
 
             try {
 
+                const quoteUrl = `${process.env.FRONTEND_URL}/view-quote/${booking.bookingRef}`;
+
                 const html =
-                    bookingConfirmationTemplate(booking);
+                    bookingConfirmationTemplate(booking, quoteUrl);
 
                 await sendEmail(
                     booking.customer.email,
@@ -335,20 +337,131 @@ const getBookingByRef = async (req, res) => {
 const updateBookingStatus = async (req, res) => {
     try {
         const { status, adminNotes } = req.body;
-        const allowed = ["pending", "confirmed", "in_progress", "completed", "cancelled"];
-        if (!allowed.includes(status))
-            return res.status(400).json({ success: false, message: "Invalid status." });
+
+        const allowed = [
+            "pending",
+            "confirmed",
+            "in_progress",
+            "completed",
+            "cancelled"
+        ];
+
+        if (!allowed.includes(status)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid status."
+            });
+        }
 
         const booking = await Booking.findByIdAndUpdate(
             req.params.id,
-            { status, ...(adminNotes !== undefined && { adminNotes }) },
+            {
+                status,
+                ...(adminNotes !== undefined && { adminNotes })
+            },
             { returnDocument: "after" }
         );
-        if (!booking) return res.status(404).json({ success: false, message: "Booking not found." });
 
-        res.json({ success: true, data: booking });
+        if (!booking) {
+            return res.status(404).json({
+                success: false,
+                message: "Booking not found."
+            });
+        }
+
+        // Send confirmation email only when booking is confirmed
+        if (
+            status === "confirmed" &&
+            booking.customer?.email
+        ) {
+            try {
+                const frontendUrl =
+                    process.env.FRONTEND_URL ||
+                    "http://localhost:3000";
+
+                const confirmedUrl =
+                    `${frontendUrl}/booking-confirmed/${booking.bookingRef}`;
+
+                const html = `
+                    <p>
+                        Hello ${booking.customer?.name || "Customer"},
+                    </p>
+
+                    <p>
+                        Great news! Your booking with
+                        <strong>Khan Moves</strong>
+                        has been confirmed.
+                    </p>
+
+                    <p>
+                        Booking Reference:
+                        <strong>${booking.bookingRef}</strong>
+                    </p>
+
+                    <p>
+                        Confirmed Price:
+                        <strong>£${Math.round(
+                    Number(booking.totalPrice) || 0
+                )}</strong>
+                    </p>
+
+                    <p>
+                        You can view your confirmed booking using the link below:
+                    </p>
+
+                    <p>
+                        <a
+                            href="${confirmedUrl}"
+                            target="_blank"
+                            style="
+                                display:inline-block;
+                                padding:12px 24px;
+                                background:#E20613;
+                                color:#ffffff;
+                                text-decoration:none;
+                                border-radius:8px;
+                                font-weight:bold;
+                            "
+                        >
+                            View Confirmed Booking
+                        </a>
+                    </p>
+
+                    <p>
+                        ${confirmedUrl}
+                    </p>
+
+                    <p>
+                        Thank you for choosing Khan Moves.
+                    </p>
+                `;
+
+                await sendEmail(
+                    booking.customer.email,
+                    `Booking Confirmed - ${booking.bookingRef}`,
+                    html,
+                    [],
+                    "noreply"
+                );
+
+            } catch (emailError) {
+                console.error(
+                    "Booking confirmation email failed:",
+                    emailError
+                );
+            }
+        }
+
+        return res.json({
+            success: true,
+            data: booking
+        });
+
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
     }
 };
 ///update booking.................
@@ -710,6 +823,47 @@ const updateBookingPrice = async (req, res) => {
     }
 };
 
+// PATCH /api/bookings/:id/payment-status
+const updatePaymentStatus = async (req, res) => {
+    try {
+        const { paymentStatus } = req.body;
+
+        const allowed = ["unpaid", "paid"];
+
+        if (!allowed.includes(paymentStatus)) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid payment status."
+            });
+        }
+
+        const booking = await Booking.findById(req.params.id);
+
+        if (!booking) {
+            return res.status(404).json({
+                success: false,
+                message: "Booking not found."
+            });
+        }
+
+        booking.paymentStatus = paymentStatus;
+
+        await booking.save();
+
+        return res.json({
+            success: true,
+            message: `Payment marked as ${paymentStatus}.`,
+            data: booking
+        });
+
+    } catch (err) {
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
+    }
+};
+
 
 const formatWhatsAppNumber = (phone) => {
     const number = String(phone || "").replace(/\D/g, "");
@@ -965,6 +1119,7 @@ module.exports = {
     getBooking,
     getBookingByRef,
     updateBookingStatus,
+    updatePaymentStatus,
     updateBooking,
     deleteBooking,
     getInvoiceBookings,

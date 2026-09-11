@@ -284,6 +284,12 @@ const bookingSchema = new mongoose.Schema({
         businessDelivery: { type: Boolean, default: false }
     },
 
+    paymentStatus: {
+        type: String,
+        enum: ["unpaid", "paid"],
+        default: "unpaid"
+    },
+
     status: {
         type: String,
         enum: [
@@ -295,6 +301,7 @@ const bookingSchema = new mongoose.Schema({
         ],
         default: "pending"
     },
+
 
     adminNotes: {
         type: String,

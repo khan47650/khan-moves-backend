@@ -63,7 +63,7 @@ const getImages = () => {
 };
 
 
-module.exports = booking => {
+module.exports = (booking, quoteUrl) => {
 
     const images = getImages();
 
@@ -84,7 +84,7 @@ content="width=device-width, initial-scale=1.0"
 
 <title>
 
-Khan Moves Booking
+Khan Moves Quote Request
 
 </title>
 
@@ -156,7 +156,7 @@ font-weight:bold;
 "
 >
 
-Booking Received
+Quote Request Received
 
 </h1>
 
@@ -172,7 +172,7 @@ line-height:26px;
 Thank you for choosing
 <b>Khan Moves.</b>
 
-We've successfully received your booking request.
+We've successfully received your quote request.
 
 </p>
 
@@ -242,7 +242,7 @@ color:#666;
 "
 >
 
-Booking Reference
+Quote Reference
 
 </div>
 
@@ -258,6 +258,42 @@ letter-spacing:1px;
 ${booking.bookingRef}
 
 </div>
+
+${quoteUrl
+            ? `
+        <div style="margin-top:22px;">
+            <a
+                href="${quoteUrl}"
+                target="_blank"
+                style="
+                    display:inline-block;
+                    padding:13px 28px;
+                    background:#E20613;
+                    color:#ffffff;
+                    text-decoration:none;
+                    font-size:15px;
+                    font-weight:bold;
+                    border-radius:8px;
+                "
+            >
+                View Your Quote
+            </a>
+        </div>
+
+        <div
+            style="
+                margin-top:12px;
+                font-size:12px;
+                line-height:20px;
+                color:#888;
+                word-break:break-all;
+            "
+        >
+            ${quoteUrl}
+        </div>
+        `
+            : ""
+        }
 
 </td>
 
@@ -311,7 +347,8 @@ to
     ${booking.delivery?.postcode ? `, ${booking.delivery.postcode}` : ""}
 </b>.
 
-Our operations team is now reviewing your booking and will confirm availability shortly.
+Our operations team is now reviewing your quote request and will confirm availability shortly.
+Your request is not yet a confirmed booking.
 
 </p>
 
@@ -345,7 +382,7 @@ color:#ffffff;
 "
 >
 
-Booking Details
+Quote Details
 
 </td>
 
@@ -405,8 +442,8 @@ border-bottom:1px solid #eee;
 >
 
 ${formatCrew(
-        booking.helperCount
-    )}
+            booking.helperCount
+        )}
 
 </td>
 
@@ -436,8 +473,8 @@ border-bottom:1px solid #eee;
 >
 
 ${formatDate(
-        booking.date
-    )}
+            booking.date
+        )}
 
 </td>
 
@@ -467,8 +504,8 @@ border-bottom:1px solid #eee;
 >
 
 ${formatTimeSlot(
-        booking.timeSlot
-    )}
+            booking.timeSlot
+        )}
 
 </td>
 
@@ -527,8 +564,8 @@ border-bottom:1px solid #eee;
 >
 
 ${Number(
-        booking.totalVolume
-    ).toFixed(2)} m³
+            booking.totalVolume
+        ).toFixed(2)} m³
 
 </td>
 
@@ -634,31 +671,23 @@ color:#444;
 >
 
 <li>
-
-✅
-Booking received successfully
-
+✅ Your quote request has been received successfully
 </li>
 
 <li>
-
-⏳
-Our team will review your booking
-
+⏳ Our team will review your request and confirm availability
 </li>
 
 <li>
-
-📞
-We'll contact you by phone, WhatsApp or email if required
-
+🔗 Use your permanent View Quote link to see the latest quote details
 </li>
 
 <li>
+📞 We may contact you by phone, WhatsApp or email if more information is needed
+</li>
 
-🧾
-Invoice will be sent after confirmation
-
+<li>
+✅ Once the confirmation process is completed, your job can be confirmed
 </li>
 
 </ul>
@@ -680,7 +709,7 @@ margin:0;
 "
 >
 
-If you need to make any changes to your booking, including your moving date, address, time slot or items, simply reply to this email or contact our support team.
+If you need to make any changes to your quote request, including your moving date, address, time slot or items, contact our support team. Your permanent View Quote page will always display the latest details once changes are made.
 
 We're always happy to help.
 

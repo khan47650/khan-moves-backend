@@ -94,6 +94,14 @@ const createJobFromBooking = async (req, res) => {
         const booking = await Booking.findById(req.params.bookingId);
         if (!booking) return res.status(404).json({ success: false, message: "Booking not found." });
 
+        // Safety check
+        if (booking.paymentStatus !== "paid") {
+            return res.status(400).json({
+                success: false,
+                message: "Payment is pending. Mark payment as paid before accepting this booking."
+            });
+        }
+
         // Check job not already created
         const existing = await Job.findOne({ booking: booking._id });
         if (existing) return res.status(409).json({ success: false, message: "Job already exists for this booking." });
@@ -160,9 +168,11 @@ const createJobFromBooking = async (req, res) => {
                 }
             ]
         });
-
         // Update booking status to confirmed
-        await Booking.findByIdAndUpdate(booking._id, { status: "confirmed" });
+        await Booking.findByIdAndUpdate(
+            booking._id,
+            { status: "confirmed" }
+        );
 
         // Send confirmation email to customer
         if (booking.customer?.email) {
@@ -170,54 +180,445 @@ const createJobFromBooking = async (req, res) => {
                 await getServiceLabel(
                     booking.serviceType
                 );
-            const html = `
-            <!DOCTYPE html><html><head><meta charset="UTF-8"></head>
-            <body style="margin:0;padding:0;font-family:Arial,sans-serif;background:#f5f5f5">
-            <div style="max-width:600px;margin:0 auto;background:#fff">
-                <div style="height:5px;background:#C0392B"></div>
-              <div style="background:#C0392B;padding:24px 32px;display:flex;align-items:center;justify-content:space-between">
-                    <div>
-                        <div style="color:#fff;font-size:20px;font-weight:700;font-family:Arial,sans-serif">KHAN MOVES</div>
-                        <div style="color:#ffcccc;font-size:11px;font-family:Arial,sans-serif;margin-top:2px">Professional Removals UK</div>
-                    </div>
-                    <div style="color:#fff;font-size:13px;font-family:Arial,sans-serif;font-weight:700">${booking.bookingRef}</div>
-                </div>
-                <div style="padding:28px 32px">
-                    <div style="background:#d4edda;border:1px solid #c3e6cb;border-radius:8px;padding:16px 20px;margin-bottom:24px;text-align:center">
-                        <div style="font-size:28px;margin-bottom:8px">✅</div>
-                        <div style="font-size:18px;font-weight:700;color:#155724;font-family:Arial,sans-serif">Booking Confirmed!</div>
-                    </div>
-                    <h2 style="color:#1a1a1a;font-size:18px;margin-bottom:8px;font-family:Arial,sans-serif">Hello ${booking.customer?.name || "Customer"},</h2>
-                    <p style="color:#555;font-size:13px;line-height:1.6;margin-bottom:20px;font-family:Arial,sans-serif">
-                        Great news! Your booking with Khan Moves has been <strong>confirmed</strong>. Our team will be there on the scheduled date to make your move smooth and stress-free.
-                    </p>
-                    <div style="background:#f7f7f7;border-radius:8px;padding:16px 20px;margin-bottom:20px">
-                        <table style="width:100%;border-collapse:collapse">
-                            <tr><td style="font-size:11px;color:#888;padding-bottom:5px;width:110px;font-family:Arial,sans-serif">Booking Ref</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${booking.bookingRef}</td></tr>
-                            <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Service</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${svcLabel}</td></tr>
-                            <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Move Date</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif">${booking.dateType === "flexible" ? "Flexible dates" : booking.date || "—"}</td></tr>
-                            <tr><td style="font-size:11px;color:#888;padding-bottom:5px;font-family:Arial,sans-serif">Time Slot</td><td style="font-size:11px;color:#1a1a1a;font-weight:600;padding-bottom:5px;font-family:Arial,sans-serif;text-transform:capitalize">${booking.dateType === "flexible"
-                    ? "I'm flexible with timing"
-                    : formatTimeSlot(booking.timeSlot)}</td></tr>
-                            <tr><td style="font-size:11px;color:#888;font-family:Arial,sans-serif">Total Price</td><td style="font-size:11px;color:#C0392B;font-weight:700;font-family:Arial,sans-serif">£${(booking.totalPrice || 0).toFixed(2)}</td></tr>
-                        </table>
-                    </div>
-                    <div style="background:#f7f7f7;border-radius:8px;padding:16px 20px;margin-bottom:20px">
-                        <p style="font-size:10px;color:#999;font-weight:700;text-transform:uppercase;margin-bottom:8px;font-family:Arial,sans-serif">Route</p>
-                        <p style="font-size:12px;font-weight:700;color:#C0392B;margin-bottom:2px;font-family:Arial,sans-serif">Pickup</p>
-                        <p style="font-size:12px;color:#1a1a1a;margin-bottom:10px;font-family:Arial,sans-serif">${booking.pickup?.address || "—"}, ${booking.pickup?.postcode || ""}</p>
-                        <p style="font-size:12px;font-weight:700;color:#27AE60;margin-bottom:2px;font-family:Arial,sans-serif">Delivery</p>
-                        <p style="font-size:12px;color:#1a1a1a;font-family:Arial,sans-serif">${booking.delivery?.address || "—"}, ${booking.delivery?.postcode || ""}</p>
-                    </div>
-                    <p style="font-size:13px;color:#555;line-height:1.6;font-family:Arial,sans-serif">
-                        If you have any questions, please contact us at <a href="mailto:info@khanmoves.co.uk" style="color:#C0392B">info@khanmoves.co.uk</a> or call <strong>07700 000000</strong>.
-                    </p>
-                </div>
-                <div style="height:4px;background:#C0392B"></div>
-            </div>
-            </body></html>`;
 
-            await sendEmail(booking.customer.email, `Booking Confirmed - ${booking.bookingRef}`, html);
+            const frontendUrl =
+                process.env.FRONTEND_URL ||
+                "http://localhost:3000";
+
+            const confirmedUrl =
+                `${frontendUrl}/booking-confirmed/${booking.bookingRef}`;
+
+            const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+    </head>
+
+    <body
+        style="
+            margin:0;
+            padding:0;
+            font-family:Arial,sans-serif;
+            background:#f5f5f5;
+        "
+    >
+        <div
+            style="
+                max-width:600px;
+                margin:0 auto;
+                background:#ffffff;
+            "
+        >
+
+            <div
+                style="
+                    height:5px;
+                    background:#C0392B;
+                "
+            ></div>
+
+            <!-- HEADER -->
+            <div
+                style="
+                    background:#C0392B;
+                    padding:24px 32px;
+                "
+            >
+                <table
+                    width="100%"
+                    cellpadding="0"
+                    cellspacing="0"
+                >
+                    <tr>
+                        <td>
+                            <div
+                                style="
+                                    color:#ffffff;
+                                    font-size:20px;
+                                    font-weight:700;
+                                "
+                            >
+                                KHAN MOVES
+                            </div>
+
+                            <div
+                                style="
+                                    color:#ffcccc;
+                                    font-size:11px;
+                                    margin-top:2px;
+                                "
+                            >
+                                Professional Removals UK
+                            </div>
+                        </td>
+
+                        <td
+                            align="right"
+                            style="
+                                color:#ffffff;
+                                font-size:13px;
+                                font-weight:700;
+                            "
+                        >
+                            ${booking.bookingRef}
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="padding:28px 32px;">
+
+                <!-- CONFIRMED -->
+                <div
+                    style="
+                        background:#d4edda;
+                        border:1px solid #c3e6cb;
+                        border-radius:8px;
+                        padding:16px 20px;
+                        margin-bottom:24px;
+                        text-align:center;
+                    "
+                >
+                    <div
+                        style="
+                            font-size:28px;
+                            margin-bottom:8px;
+                        "
+                    >
+                        ✅
+                    </div>
+
+                    <div
+                        style="
+                            font-size:18px;
+                            font-weight:700;
+                            color:#155724;
+                        "
+                    >
+                        Booking Confirmed!
+                    </div>
+                </div>
+
+                <h2
+                    style="
+                        color:#1a1a1a;
+                        font-size:18px;
+                        margin-bottom:8px;
+                    "
+                >
+                    Hello ${booking.customer?.name || "Customer"},
+                </h2>
+
+                <p
+                    style="
+                        color:#555;
+                        font-size:13px;
+                        line-height:1.6;
+                        margin-bottom:20px;
+                    "
+                >
+                    Great news! Your booking with Khan Moves has been
+                    <strong>confirmed</strong>.
+                    Our team will be there on the scheduled date to make
+                    your move smooth and stress-free.
+                </p>
+
+                <!-- BOOKING DETAILS -->
+                <div
+                    style="
+                        background:#f7f7f7;
+                        border-radius:8px;
+                        padding:16px 20px;
+                        margin-bottom:20px;
+                    "
+                >
+                    <table
+                        style="
+                            width:100%;
+                            border-collapse:collapse;
+                        "
+                    >
+                        <tr>
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#888;
+                                    padding-bottom:6px;
+                                    width:110px;
+                                "
+                            >
+                                Booking Ref
+                            </td>
+
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#1a1a1a;
+                                    font-weight:600;
+                                    padding-bottom:6px;
+                                "
+                            >
+                                ${booking.bookingRef}
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#888;
+                                    padding-bottom:6px;
+                                "
+                            >
+                                Service
+                            </td>
+
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#1a1a1a;
+                                    font-weight:600;
+                                    padding-bottom:6px;
+                                "
+                            >
+                                ${svcLabel}
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#888;
+                                    padding-bottom:6px;
+                                "
+                            >
+                                Move Date
+                            </td>
+
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#1a1a1a;
+                                    font-weight:600;
+                                    padding-bottom:6px;
+                                "
+                            >
+                                ${booking.dateType === "flexible"
+                    ? "Flexible dates"
+                    : booking.date || "—"
+                }
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#888;
+                                    padding-bottom:6px;
+                                "
+                            >
+                                Time Slot
+                            </td>
+
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#1a1a1a;
+                                    font-weight:600;
+                                    padding-bottom:6px;
+                                "
+                            >
+                                ${booking.dateType === "flexible"
+                    ? "I'm flexible with timing"
+                    : formatTimeSlot(
+                        booking.timeSlot
+                    )
+                }
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#888;
+                                "
+                            >
+                                Total Price
+                            </td>
+
+                            <td
+                                style="
+                                    font-size:11px;
+                                    color:#C0392B;
+                                    font-weight:700;
+                                "
+                            >
+                                £${Number(
+                    booking.totalPrice || 0
+                ).toFixed(2)}
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- ROUTE -->
+                <div
+                    style="
+                        background:#f7f7f7;
+                        border-radius:8px;
+                        padding:16px 20px;
+                        margin-bottom:22px;
+                    "
+                >
+                    <p
+                        style="
+                            font-size:10px;
+                            color:#999;
+                            font-weight:700;
+                            text-transform:uppercase;
+                            margin:0 0 8px;
+                        "
+                    >
+                        Route
+                    </p>
+
+                    <p
+                        style="
+                            font-size:12px;
+                            font-weight:700;
+                            color:#C0392B;
+                            margin:0 0 2px;
+                        "
+                    >
+                        Pickup
+                    </p>
+
+                    <p
+                        style="
+                            font-size:12px;
+                            color:#1a1a1a;
+                            margin:0 0 12px;
+                        "
+                    >
+                        ${booking.pickup?.address || "—"},
+                        ${booking.pickup?.postcode || ""}
+                    </p>
+
+                    <p
+                        style="
+                            font-size:12px;
+                            font-weight:700;
+                            color:#27AE60;
+                            margin:0 0 2px;
+                        "
+                    >
+                        Delivery
+                    </p>
+
+                    <p
+                        style="
+                            font-size:12px;
+                            color:#1a1a1a;
+                            margin:0;
+                        "
+                    >
+                        ${booking.delivery?.address || "—"},
+                        ${booking.delivery?.postcode || ""}
+                    </p>
+                </div>
+
+                <!-- VIEW CONFIRMED BOOKING -->
+                <div
+                    style="
+                        text-align:center;
+                        margin-bottom:24px;
+                    "
+                >
+                    <a
+                        href="${confirmedUrl}"
+                        target="_blank"
+                        style="
+                            display:inline-block;
+                            padding:13px 28px;
+                            background:#C0392B;
+                            color:#ffffff;
+                            text-decoration:none;
+                            border-radius:8px;
+                            font-size:13px;
+                            font-weight:700;
+                        "
+                    >
+                        View Confirmed Booking
+                    </a>
+
+                    <p
+                        style="
+                            margin:12px 0 0;
+                            font-size:10px;
+                            line-height:18px;
+                            color:#999;
+                            word-break:break-all;
+                        "
+                    >
+                        ${confirmedUrl}
+                    </p>
+                </div>
+
+                <!-- CONTACT -->
+                <p
+                    style="
+                        font-size:13px;
+                        color:#555;
+                        line-height:1.6;
+                        margin:0;
+                    "
+                >
+                    If you have any questions, please contact us at
+                    <a
+                        href="mailto:info@khanmoves.co.uk"
+                        style="
+                            color:#C0392B;
+                            text-decoration:none;
+                        "
+                    >
+                        info@khanmoves.co.uk
+                    </a>
+                    or call
+                    <a
+                        href="tel:07869416748"
+                        style="
+                            color:#C0392B;
+                            text-decoration:none;
+                            font-weight:700;
+                        "
+                    >
+                        07869 416748
+                    </a>.
+                </p>
+
+            </div>
+
+            <div
+                style="
+                    height:4px;
+                    background:#C0392B;
+                "
+            ></div>
+
+        </div>
+    </body>
+    </html>
+    `;
+
+            await sendEmail(
+                booking.customer.email,
+                `Booking Confirmed - ${booking.bookingRef}`,
+                html
+            );
         }
 
         res.status(201).json({ success: true, data: job });

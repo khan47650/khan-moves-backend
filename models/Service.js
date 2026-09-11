@@ -3,7 +3,11 @@ const mongoose = require("mongoose");
 const itemSchema = new mongoose.Schema({
     name: { type: String, required: true, trim: true },
     volume: { type: Number, required: true, min: 0 },
-    isPaused: { type: Boolean, default: false }
+    isPaused: { type: Boolean, default: false },
+    isHidden: {
+        type: Boolean,
+        default: false
+    }
 }, { _id: true });
 
 const categorySchema = new mongoose.Schema({

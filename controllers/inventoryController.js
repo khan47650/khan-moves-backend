@@ -210,7 +210,12 @@ const deleteCategory = async (req, res) => {
 
 const addItem = async (req, res) => {
     try {
-        const { name, volume, categoryId } = req.body;
+        const {
+            name,
+            volume,
+            categoryId,
+            isHidden = false
+        } = req.body;
         const itemName = name?.trim();
         const itemVolume = Number(volume);
 
@@ -230,7 +235,8 @@ const addItem = async (req, res) => {
         category.items.push({
             name: itemName,
             volume: itemVolume,
-            isPaused: false
+            isPaused: false,
+            isHidden: Boolean(isHidden)
         });
 
         await service.save();
@@ -247,7 +253,12 @@ const addItem = async (req, res) => {
 
 const updateItem = async (req, res) => {
     try {
-        const { name, volume, categoryId } = req.body;
+        const {
+            name,
+            volume,
+            categoryId,
+            isHidden
+        } = req.body;
         const service = await Service.findById(req.params.serviceId);
 
         if (!service) return res.status(404).json({ success: false, message: "Service not found." });
@@ -263,6 +274,11 @@ const updateItem = async (req, res) => {
         const itemName = name === undefined ? item.name : name.trim();
         const itemVolume = volume === undefined ? item.volume : Number(volume);
 
+        const itemHidden =
+            isHidden === undefined
+                ? item.isHidden
+                : Boolean(isHidden);
+
         if (!itemName) return res.status(400).json({ success: false, message: "Item name is required." });
         if (!Number.isFinite(itemVolume) || itemVolume <= 0) return res.status(400).json({
             success: false,
@@ -274,7 +290,8 @@ const updateItem = async (req, res) => {
                 _id: item._id,
                 name: itemName,
                 volume: itemVolume,
-                isPaused: item.isPaused
+                isPaused: item.isPaused,
+                isHidden: itemHidden
             };
 
             oldCategory.items.pull(item._id);
@@ -290,6 +307,7 @@ const updateItem = async (req, res) => {
 
         item.name = itemName;
         item.volume = itemVolume;
+        item.isHidden = itemHidden;
         await service.save();
 
         res.json({
