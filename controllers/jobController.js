@@ -91,32 +91,67 @@ const formatTimeSlot = value => {
 // ── POST /api/jobs/from-booking/:bookingId 
 const createJobFromBooking = async (req, res) => {
     try {
-        const booking = await Booking.findById(req.params.bookingId);
-        if (!booking) return res.status(404).json({ success: false, message: "Booking not found." });
+        const booking = await Booking.findById(
+            req.params.bookingId
+        );
 
-        // Safety check
-        if (booking.paymentStatus !== "paid") {
-            return res.status(400).json({
+        if (!booking) {
+            return res.status(404).json({
                 success: false,
-                message: "Payment is pending. Mark payment as paid before accepting this booking."
+                message: "Booking not found."
             });
         }
 
-        // Check job not already created
-        const existing = await Job.findOne({ booking: booking._id });
-        if (existing) return res.status(409).json({ success: false, message: "Job already exists for this booking." });
+        // --------------------------------------------------
+        // PAYMENT SAFETY CHECK
+        // --------------------------------------------------
+        if (booking.paymentStatus !== "paid") {
+            return res.status(400).json({
+                success: false,
+                message:
+                    "Payment is pending. Mark payment as paid before accepting this booking."
+            });
+        }
 
-        // console.log("BOOKING BREAKDOWN");
-        // console.log(booking.priceBreakdown);
+        // --------------------------------------------------
+        // PREVENT DUPLICATE JOB
+        // --------------------------------------------------
+        const existing = await Job.findOne({
+            booking: booking._id
+        });
+
+        if (existing) {
+            // Self-heal booking status
+            if (booking.status !== "confirmed") {
+                booking.status = "confirmed";
+                await booking.save();
+            }
+
+            return res.json({
+                success: true,
+                message:
+                    "Booking already confirmed and job already exists.",
+                data: existing,
+                alreadyExists: true
+            });
+        }
+
+        // --------------------------------------------------
+        // CREATE JOB
+        // --------------------------------------------------
         const job = await Job.create({
             booking: booking._id,
             bookingRef: booking.bookingRef,
             serviceType: booking.serviceType,
+
             customer: booking.customer,
+
             pickup: booking.pickup,
             delivery: booking.delivery,
+
             pickupFloor: booking.pickupFloor,
             deliveryFloor: booking.deliveryFloor,
+
             items: booking.items,
             totalVolume: booking.totalVolume,
 
@@ -124,29 +159,42 @@ const createJobFromBooking = async (req, res) => {
             dateType: booking.dateType,
             timeSlot: booking.timeSlot,
 
-            distance: Number(booking.distance) || 0,
+            distance:
+                Number(booking.distance) || 0,
 
             estimatedDeliveryTime: String(
                 booking.estimatedDeliveryTime || ""
             ).trim(),
 
-            totalPrice: booking.totalPrice,
+            totalPrice:
+                booking.totalPrice,
 
-            adminPrice: booking.adminPrice ?? null,
+            originalPrice:
+                booking.originalPrice || booking.totalPrice,
 
-            priceBreakdown: booking.priceBreakdown || [],
+            adminPrice:
+                booking.adminPrice ?? null,
 
-            pricingStatus: booking.pricingStatus || "",
+            priceBreakdown:
+                booking.priceBreakdown || [],
 
-            pricingNote: booking.pricingNote || "",
+            pricingStatus:
+                booking.pricingStatus || "",
 
-            helperCount: booking.helperCount || 0,
+            pricingNote:
+                booking.pricingNote || "",
 
-            dismantleCount: booking.dismantleCount || 0,
+            helperCount:
+                booking.helperCount || 0,
 
-            assemblyCount: booking.assemblyCount || 0,
+            dismantleCount:
+                booking.dismantleCount || 0,
 
-            packingService: booking.packingService || false,
+            assemblyCount:
+                booking.assemblyCount || 0,
+
+            packingService:
+                booking.packingService || false,
 
             smallBoxPackingCount:
                 booking.smallBoxPackingCount || 0,
@@ -157,473 +205,507 @@ const createJobFromBooking = async (req, res) => {
             largeBoxPackingCount:
                 booking.largeBoxPackingCount || 0,
 
-            specialInstructions: booking.specialInstructions,
+            specialInstructions:
+                booking.specialInstructions || "",
 
             status: "active",
 
             statusHistory: [
                 {
                     status: "active",
-                    reason: "Job created from confirmed booking"
+                    reason:
+                        "Job created from confirmed booking"
                 }
             ]
         });
-        // Update booking status to confirmed
-        await Booking.findByIdAndUpdate(
-            booking._id,
-            { status: "confirmed" }
-        );
 
-        // Send confirmation email to customer
+        // --------------------------------------------------
+        // UPDATE BOOKING STATUS
+        // --------------------------------------------------
+        booking.status = "confirmed";
+        await booking.save();
+
+        // --------------------------------------------------
+        // SEND CONFIRMATION EMAIL
+        // EMAIL FAILURE MUST NOT FAIL JOB CREATION
+        // --------------------------------------------------
         if (booking.customer?.email) {
-            const svcLabel =
-                await getServiceLabel(
-                    booking.serviceType
-                );
+            try {
+                const svcLabel =
+                    await getServiceLabel(
+                        booking.serviceType
+                    );
 
-            const frontendUrl =
-                process.env.FRONTEND_URL ||
-                "http://localhost:3000";
+                const frontendUrl =
+                    process.env.FRONTEND_URL ||
+                    "http://localhost:3000";
 
-            const confirmedUrl =
-                `${frontendUrl}/booking-confirmed/${booking.bookingRef}`;
+                const confirmedUrl =
+                    `${frontendUrl}/booking-confirmed/${booking.bookingRef}`;
 
-            const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-    </head>
+                const html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+</head>
 
-    <body
+<body
+    style="
+        margin:0;
+        padding:0;
+        font-family:Arial,sans-serif;
+        background:#f5f5f5;
+    "
+>
+    <div
         style="
-            margin:0;
-            padding:0;
-            font-family:Arial,sans-serif;
-            background:#f5f5f5;
+            max-width:600px;
+            margin:0 auto;
+            background:#ffffff;
         "
     >
+
         <div
             style="
-                max-width:600px;
-                margin:0 auto;
-                background:#ffffff;
+                height:5px;
+                background:#C0392B;
+            "
+        ></div>
+
+        <!-- HEADER -->
+        <div
+            style="
+                background:#C0392B;
+                padding:24px 32px;
             "
         >
+            <table
+                width="100%"
+                cellpadding="0"
+                cellspacing="0"
+            >
+                <tr>
+                    <td>
+                        <div
+                            style="
+                                color:#ffffff;
+                                font-size:20px;
+                                font-weight:700;
+                            "
+                        >
+                            KHAN MOVES
+                        </div>
 
+                        <div
+                            style="
+                                color:#ffcccc;
+                                font-size:11px;
+                                margin-top:2px;
+                            "
+                        >
+                            Professional Removals UK
+                        </div>
+                    </td>
+
+                    <td
+                        align="right"
+                        style="
+                            color:#ffffff;
+                            font-size:13px;
+                            font-weight:700;
+                        "
+                    >
+                        ${booking.bookingRef}
+                    </td>
+                </tr>
+            </table>
+        </div>
+
+        <div style="padding:28px 32px;">
+
+            <!-- CONFIRMED -->
             <div
                 style="
-                    height:5px;
-                    background:#C0392B;
+                    background:#d4edda;
+                    border:1px solid #c3e6cb;
+                    border-radius:8px;
+                    padding:16px 20px;
+                    margin-bottom:24px;
+                    text-align:center;
                 "
-            ></div>
+            >
+                <div
+                    style="
+                        font-size:28px;
+                        margin-bottom:8px;
+                    "
+                >
+                    ✅
+                </div>
 
-            <!-- HEADER -->
+                <div
+                    style="
+                        font-size:18px;
+                        font-weight:700;
+                        color:#155724;
+                    "
+                >
+                    Booking Confirmed!
+                </div>
+            </div>
+
+            <h2
+                style="
+                    color:#1a1a1a;
+                    font-size:18px;
+                    margin-bottom:8px;
+                "
+            >
+                Hello ${booking.customer?.name || "Customer"},
+            </h2>
+
+            <p
+                style="
+                    color:#555;
+                    font-size:13px;
+                    line-height:1.6;
+                    margin-bottom:20px;
+                "
+            >
+                Great news! Your booking with Khan Moves has been
+                <strong>confirmed</strong>.
+                Our team will be there on the scheduled date to make
+                your move smooth and stress-free.
+            </p>
+
+            <!-- BOOKING DETAILS -->
             <div
                 style="
-                    background:#C0392B;
-                    padding:24px 32px;
+                    background:#f7f7f7;
+                    border-radius:8px;
+                    padding:16px 20px;
+                    margin-bottom:20px;
                 "
             >
                 <table
-                    width="100%"
-                    cellpadding="0"
-                    cellspacing="0"
+                    style="
+                        width:100%;
+                        border-collapse:collapse;
+                    "
                 >
                     <tr>
-                        <td>
-                            <div
-                                style="
-                                    color:#ffffff;
-                                    font-size:20px;
-                                    font-weight:700;
-                                "
-                            >
-                                KHAN MOVES
-                            </div>
-
-                            <div
-                                style="
-                                    color:#ffcccc;
-                                    font-size:11px;
-                                    margin-top:2px;
-                                "
-                            >
-                                Professional Removals UK
-                            </div>
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#888;
+                                padding-bottom:6px;
+                                width:110px;
+                            "
+                        >
+                            Booking Ref
                         </td>
 
                         <td
-                            align="right"
                             style="
-                                color:#ffffff;
-                                font-size:13px;
-                                font-weight:700;
+                                font-size:11px;
+                                color:#1a1a1a;
+                                font-weight:600;
+                                padding-bottom:6px;
                             "
                         >
                             ${booking.bookingRef}
                         </td>
                     </tr>
+
+                    <tr>
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#888;
+                                padding-bottom:6px;
+                            "
+                        >
+                            Service
+                        </td>
+
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#1a1a1a;
+                                font-weight:600;
+                                padding-bottom:6px;
+                            "
+                        >
+                            ${svcLabel}
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#888;
+                                padding-bottom:6px;
+                            "
+                        >
+                            Move Date
+                        </td>
+
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#1a1a1a;
+                                font-weight:600;
+                                padding-bottom:6px;
+                            "
+                        >
+                            ${booking.dateType === "flexible"
+                        ? "Flexible dates"
+                        : booking.date || "—"
+                    }
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#888;
+                                padding-bottom:6px;
+                            "
+                        >
+                            Time Slot
+                        </td>
+
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#1a1a1a;
+                                font-weight:600;
+                                padding-bottom:6px;
+                            "
+                        >
+                            ${booking.dateType === "flexible"
+                        ? "I'm flexible with timing"
+                        : formatTimeSlot(
+                            booking.timeSlot
+                        )
+                    }
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#888;
+                            "
+                        >
+                            Total Price
+                        </td>
+
+                        <td
+                            style="
+                                font-size:11px;
+                                color:#C0392B;
+                                font-weight:700;
+                            "
+                        >
+                            £${Number(
+                        booking.totalPrice || 0
+                    ).toFixed(2)}
+                        </td>
+                    </tr>
                 </table>
             </div>
 
-            <div style="padding:28px 32px;">
-
-                <!-- CONFIRMED -->
-                <div
-                    style="
-                        background:#d4edda;
-                        border:1px solid #c3e6cb;
-                        border-radius:8px;
-                        padding:16px 20px;
-                        margin-bottom:24px;
-                        text-align:center;
-                    "
-                >
-                    <div
-                        style="
-                            font-size:28px;
-                            margin-bottom:8px;
-                        "
-                    >
-                        ✅
-                    </div>
-
-                    <div
-                        style="
-                            font-size:18px;
-                            font-weight:700;
-                            color:#155724;
-                        "
-                    >
-                        Booking Confirmed!
-                    </div>
-                </div>
-
-                <h2
-                    style="
-                        color:#1a1a1a;
-                        font-size:18px;
-                        margin-bottom:8px;
-                    "
-                >
-                    Hello ${booking.customer?.name || "Customer"},
-                </h2>
-
+            <!-- ROUTE -->
+            <div
+                style="
+                    background:#f7f7f7;
+                    border-radius:8px;
+                    padding:16px 20px;
+                    margin-bottom:22px;
+                "
+            >
                 <p
                     style="
-                        color:#555;
-                        font-size:13px;
-                        line-height:1.6;
-                        margin-bottom:20px;
+                        font-size:10px;
+                        color:#999;
+                        font-weight:700;
+                        text-transform:uppercase;
+                        margin:0 0 8px;
                     "
                 >
-                    Great news! Your booking with Khan Moves has been
-                    <strong>confirmed</strong>.
-                    Our team will be there on the scheduled date to make
-                    your move smooth and stress-free.
+                    Route
                 </p>
 
-                <!-- BOOKING DETAILS -->
-                <div
-                    style="
-                        background:#f7f7f7;
-                        border-radius:8px;
-                        padding:16px 20px;
-                        margin-bottom:20px;
-                    "
-                >
-                    <table
-                        style="
-                            width:100%;
-                            border-collapse:collapse;
-                        "
-                    >
-                        <tr>
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#888;
-                                    padding-bottom:6px;
-                                    width:110px;
-                                "
-                            >
-                                Booking Ref
-                            </td>
-
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#1a1a1a;
-                                    font-weight:600;
-                                    padding-bottom:6px;
-                                "
-                            >
-                                ${booking.bookingRef}
-                            </td>
-                        </tr>
-
-                        <tr>
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#888;
-                                    padding-bottom:6px;
-                                "
-                            >
-                                Service
-                            </td>
-
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#1a1a1a;
-                                    font-weight:600;
-                                    padding-bottom:6px;
-                                "
-                            >
-                                ${svcLabel}
-                            </td>
-                        </tr>
-
-                        <tr>
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#888;
-                                    padding-bottom:6px;
-                                "
-                            >
-                                Move Date
-                            </td>
-
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#1a1a1a;
-                                    font-weight:600;
-                                    padding-bottom:6px;
-                                "
-                            >
-                                ${booking.dateType === "flexible"
-                    ? "Flexible dates"
-                    : booking.date || "—"
-                }
-                            </td>
-                        </tr>
-
-                        <tr>
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#888;
-                                    padding-bottom:6px;
-                                "
-                            >
-                                Time Slot
-                            </td>
-
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#1a1a1a;
-                                    font-weight:600;
-                                    padding-bottom:6px;
-                                "
-                            >
-                                ${booking.dateType === "flexible"
-                    ? "I'm flexible with timing"
-                    : formatTimeSlot(
-                        booking.timeSlot
-                    )
-                }
-                            </td>
-                        </tr>
-
-                        <tr>
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#888;
-                                "
-                            >
-                                Total Price
-                            </td>
-
-                            <td
-                                style="
-                                    font-size:11px;
-                                    color:#C0392B;
-                                    font-weight:700;
-                                "
-                            >
-                                £${Number(
-                    booking.totalPrice || 0
-                ).toFixed(2)}
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-
-                <!-- ROUTE -->
-                <div
-                    style="
-                        background:#f7f7f7;
-                        border-radius:8px;
-                        padding:16px 20px;
-                        margin-bottom:22px;
-                    "
-                >
-                    <p
-                        style="
-                            font-size:10px;
-                            color:#999;
-                            font-weight:700;
-                            text-transform:uppercase;
-                            margin:0 0 8px;
-                        "
-                    >
-                        Route
-                    </p>
-
-                    <p
-                        style="
-                            font-size:12px;
-                            font-weight:700;
-                            color:#C0392B;
-                            margin:0 0 2px;
-                        "
-                    >
-                        Pickup
-                    </p>
-
-                    <p
-                        style="
-                            font-size:12px;
-                            color:#1a1a1a;
-                            margin:0 0 12px;
-                        "
-                    >
-                        ${booking.pickup?.address || "—"},
-                        ${booking.pickup?.postcode || ""}
-                    </p>
-
-                    <p
-                        style="
-                            font-size:12px;
-                            font-weight:700;
-                            color:#27AE60;
-                            margin:0 0 2px;
-                        "
-                    >
-                        Delivery
-                    </p>
-
-                    <p
-                        style="
-                            font-size:12px;
-                            color:#1a1a1a;
-                            margin:0;
-                        "
-                    >
-                        ${booking.delivery?.address || "—"},
-                        ${booking.delivery?.postcode || ""}
-                    </p>
-                </div>
-
-                <!-- VIEW CONFIRMED BOOKING -->
-                <div
-                    style="
-                        text-align:center;
-                        margin-bottom:24px;
-                    "
-                >
-                    <a
-                        href="${confirmedUrl}"
-                        target="_blank"
-                        style="
-                            display:inline-block;
-                            padding:13px 28px;
-                            background:#C0392B;
-                            color:#ffffff;
-                            text-decoration:none;
-                            border-radius:8px;
-                            font-size:13px;
-                            font-weight:700;
-                        "
-                    >
-                        View Confirmed Booking
-                    </a>
-
-                    <p
-                        style="
-                            margin:12px 0 0;
-                            font-size:10px;
-                            line-height:18px;
-                            color:#999;
-                            word-break:break-all;
-                        "
-                    >
-                        ${confirmedUrl}
-                    </p>
-                </div>
-
-                <!-- CONTACT -->
                 <p
                     style="
-                        font-size:13px;
-                        color:#555;
-                        line-height:1.6;
+                        font-size:12px;
+                        font-weight:700;
+                        color:#C0392B;
+                        margin:0 0 2px;
+                    "
+                >
+                    Pickup
+                </p>
+
+                <p
+                    style="
+                        font-size:12px;
+                        color:#1a1a1a;
+                        margin:0 0 12px;
+                    "
+                >
+                    ${booking.pickup?.address || "—"},
+                    ${booking.pickup?.postcode || ""}
+                </p>
+
+                <p
+                    style="
+                        font-size:12px;
+                        font-weight:700;
+                        color:#27AE60;
+                        margin:0 0 2px;
+                    "
+                >
+                    Delivery
+                </p>
+
+                <p
+                    style="
+                        font-size:12px;
+                        color:#1a1a1a;
                         margin:0;
                     "
                 >
-                    If you have any questions, please contact us at
-                    <a
-                        href="mailto:info@khanmoves.co.uk"
-                        style="
-                            color:#C0392B;
-                            text-decoration:none;
-                        "
-                    >
-                        info@khanmoves.co.uk
-                    </a>
-                    or call
-                    <a
-                        href="tel:07869416748"
-                        style="
-                            color:#C0392B;
-                            text-decoration:none;
-                            font-weight:700;
-                        "
-                    >
-                        07869 416748
-                    </a>.
+                    ${booking.delivery?.address || "—"},
+                    ${booking.delivery?.postcode || ""}
                 </p>
-
             </div>
 
+            <!-- VIEW CONFIRMED BOOKING -->
             <div
                 style="
-                    height:4px;
-                    background:#C0392B;
+                    text-align:center;
+                    margin-bottom:24px;
                 "
-            ></div>
+            >
+                <a
+                    href="${confirmedUrl}"
+                    target="_blank"
+                    style="
+                        display:inline-block;
+                        padding:13px 28px;
+                        background:#C0392B;
+                        color:#ffffff;
+                        text-decoration:none;
+                        border-radius:8px;
+                        font-size:13px;
+                        font-weight:700;
+                    "
+                >
+                    View Confirmed Booking
+                </a>
+
+                <p
+                    style="
+                        margin:12px 0 0;
+                        font-size:10px;
+                        line-height:18px;
+                        color:#999;
+                        word-break:break-all;
+                    "
+                >
+                    ${confirmedUrl}
+                </p>
+            </div>
+
+            <!-- CONTACT -->
+            <p
+                style="
+                    font-size:13px;
+                    color:#555;
+                    line-height:1.6;
+                    margin:0;
+                "
+            >
+                If you have any questions, please contact us at
+
+                <a
+                    href="mailto:info@khanmoves.co.uk"
+                    style="
+                        color:#C0392B;
+                        text-decoration:none;
+                    "
+                >
+                    info@khanmoves.co.uk
+                </a>
+
+                or call
+
+                <a
+                    href="tel:07869416748"
+                    style="
+                        color:#C0392B;
+                        text-decoration:none;
+                        font-weight:700;
+                    "
+                >
+                    07869 416748
+                </a>.
+            </p>
 
         </div>
-    </body>
-    </html>
-    `;
 
-            await sendEmail(
-                booking.customer.email,
-                `Booking Confirmed - ${booking.bookingRef}`,
-                html
-            );
+        <div
+            style="
+                height:4px;
+                background:#C0392B;
+            "
+        ></div>
+
+    </div>
+</body>
+</html>
+                `;
+
+                await sendEmail(
+                    booking.customer.email,
+                    `Booking Confirmed - ${booking.bookingRef}`,
+                    html
+                );
+
+            } catch (emailError) {
+                console.error(
+                    "Booking confirmation email failed:",
+                    emailError.message
+                );
+            }
         }
 
-        res.status(201).json({ success: true, data: job });
+        // --------------------------------------------------
+        // SUCCESS RESPONSE
+        // --------------------------------------------------
+        return res.status(201).json({
+            success: true,
+            message:
+                "Booking confirmed and job created successfully.",
+            data: job
+        });
+
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message });
+        console.error(
+            "Create job from booking error:",
+            err
+        );
+
+        return res.status(500).json({
+            success: false,
+            message: err.message
+        });
     }
 };
 
@@ -640,8 +722,38 @@ const updateJob = async (req, res) => {
         }
 
         const body = req.body;
-        const postcodeRegex = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
 
+        // --------------------------------------------------
+        // CHANGE HISTORY
+        // --------------------------------------------------
+        const changes = [];
+
+        const addChange = (
+            field,
+            label,
+            previousValue,
+            newValue
+        ) => {
+            const prev = JSON.stringify(previousValue ?? null);
+            const next = JSON.stringify(newValue ?? null);
+
+            if (prev !== next) {
+                changes.push({
+                    field,
+                    label,
+                    previousValue,
+                    newValue,
+                    changedAt: new Date()
+                });
+            }
+        };
+
+        const postcodeRegex =
+            /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/i;
+
+        // --------------------------------------------------
+        // LOCATIONS
+        // --------------------------------------------------
         const pickup = {
             ...(job.pickup?.toObject?.() || job.pickup || {}),
             ...(body.pickup || {})
@@ -666,10 +778,15 @@ const updateJob = async (req, res) => {
             });
         }
 
+        // --------------------------------------------------
+        // ITEMS
+        // --------------------------------------------------
         const items = Array.isArray(body.items)
             ? sanitizeItems(body.items)
             : sanitizeItems(
-                job.items.map(item => item.toObject?.() || item)
+                job.items.map(
+                    item => item.toObject?.() || item
+                )
             );
 
         if (items.length === 0) {
@@ -679,6 +796,9 @@ const updateJob = async (req, res) => {
             });
         }
 
+        // --------------------------------------------------
+        // SPECIAL INSTRUCTIONS
+        // --------------------------------------------------
         const specialInstructions =
             body.specialInstructions !== undefined
                 ? String(body.specialInstructions)
@@ -687,10 +807,14 @@ const updateJob = async (req, res) => {
         if (specialInstructions.length > 450) {
             return res.status(400).json({
                 success: false,
-                message: "Special instructions cannot exceed 450 characters."
+                message:
+                    "Special instructions cannot exceed 450 characters."
             });
         }
 
+        // --------------------------------------------------
+        // TOTAL VOLUME
+        // --------------------------------------------------
         const totalVolume = items.reduce(
             (total, item) =>
                 total +
@@ -699,6 +823,9 @@ const updateJob = async (req, res) => {
             0
         );
 
+        // --------------------------------------------------
+        // FLOORS
+        // --------------------------------------------------
         const pickupFloor = {
             ...(
                 job.pickupFloor?.toObject?.() ||
@@ -717,31 +844,54 @@ const updateJob = async (req, res) => {
             ...(body.deliveryFloor || {})
         };
 
+        // --------------------------------------------------
+        // ADDITIONAL SERVICES
+        // --------------------------------------------------
         const dismantleCount =
             body.dismantleCount !== undefined
-                ? Math.max(0, Number(body.dismantleCount) || 0)
+                ? Math.max(
+                    0,
+                    Number(body.dismantleCount) || 0
+                )
                 : Number(job.dismantleCount) || 0;
 
         const assemblyCount =
             body.assemblyCount !== undefined
-                ? Math.max(0, Number(body.assemblyCount) || 0)
+                ? Math.max(
+                    0,
+                    Number(body.assemblyCount) || 0
+                )
                 : Number(job.assemblyCount) || 0;
 
         const helperCount =
             body.helperCount !== undefined
-                ? Number(body.helperCount) > 0 ? 1 : 0
-                : Number(job.helperCount) > 0 ? 1 : 0;
+                ? Number(body.helperCount) > 0
+                    ? 1
+                    : 0
+                : Number(job.helperCount) > 0
+                    ? 1
+                    : 0;
 
+        // --------------------------------------------------
+        // PRICING DATA
+        // --------------------------------------------------
         const pricingData = {
             distance:
                 body.distance !== undefined
-                    ? Math.max(0, Number(body.distance) || 0)
-                    : Math.max(0, Number(job.distance) || 0),
+                    ? Math.max(
+                        0,
+                        Number(body.distance) || 0
+                    )
+                    : Math.max(
+                        0,
+                        Number(job.distance) || 0
+                    ),
 
             volume: totalVolume,
 
             pickupFloor,
             deliveryFloor,
+
             helperCount,
             dismantleCount,
             assemblyCount,
@@ -755,30 +905,43 @@ const updateJob = async (req, res) => {
                 body.smallBoxPackingCount !== undefined
                     ? Math.max(
                         0,
-                        Number(body.smallBoxPackingCount) || 0
+                        Number(
+                            body.smallBoxPackingCount
+                        ) || 0
                     )
-                    : Number(job.smallBoxPackingCount) || 0,
+                    : Number(
+                        job.smallBoxPackingCount
+                    ) || 0,
 
             mediumBoxPackingCount:
                 body.mediumBoxPackingCount !== undefined
                     ? Math.max(
                         0,
-                        Number(body.mediumBoxPackingCount) || 0
+                        Number(
+                            body.mediumBoxPackingCount
+                        ) || 0
                     )
-                    : Number(job.mediumBoxPackingCount) || 0,
+                    : Number(
+                        job.mediumBoxPackingCount
+                    ) || 0,
 
             largeBoxPackingCount:
                 body.largeBoxPackingCount !== undefined
                     ? Math.max(
                         0,
-                        Number(body.largeBoxPackingCount) || 0
+                        Number(
+                            body.largeBoxPackingCount
+                        ) || 0
                     )
-                    : Number(job.largeBoxPackingCount) || 0,
+                    : Number(
+                        job.largeBoxPackingCount
+                    ) || 0,
 
             serviceType:
                 body.serviceType || job.serviceType,
 
-            dateType: body.dateType || job.dateType,
+            dateType:
+                body.dateType || job.dateType,
 
             date:
                 body.date !== undefined
@@ -798,6 +961,9 @@ const updateJob = async (req, res) => {
                 ).trim()
                 : job.estimatedDeliveryTime || "";
 
+        // --------------------------------------------------
+        // CALCULATE PRICE
+        // --------------------------------------------------
         const pricingResult =
             calculatePricing(pricingData);
 
@@ -815,25 +981,305 @@ const updateJob = async (req, res) => {
         const breakdown =
             pricingResult.breakdown;
 
+        // --------------------------------------------------
+        // CAPTURE CHANGES BEFORE OVERWRITING JOB
+        // --------------------------------------------------
+
+        addChange(
+            "serviceType",
+            "Service",
+            job.serviceType || "",
+            pricingData.serviceType || ""
+        );
+
+        // Pickup
+        addChange(
+            "pickup.address",
+            "Pickup Address",
+            job.pickup?.address || "",
+            pickup.address || ""
+        );
+
+        addChange(
+            "pickup.postcode",
+            "Pickup Postcode",
+            job.pickup?.postcode || "",
+            pickup.postcode || ""
+        );
+
+        addChange(
+            "pickup.town",
+            "Pickup Town",
+            job.pickup?.town || "",
+            pickup.town || ""
+        );
+
+        // Delivery
+        addChange(
+            "delivery.address",
+            "Delivery Address",
+            job.delivery?.address || "",
+            delivery.address || ""
+        );
+
+        addChange(
+            "delivery.postcode",
+            "Delivery Postcode",
+            job.delivery?.postcode || "",
+            delivery.postcode || ""
+        );
+
+        addChange(
+            "delivery.town",
+            "Delivery Town",
+            job.delivery?.town || "",
+            delivery.town || ""
+        );
+
+        // Pickup floor
+        addChange(
+            "pickupFloor.floorLevel",
+            "Pickup Floor",
+            job.pickupFloor?.floorLevel || "",
+            pickupFloor.floorLevel || ""
+        );
+
+        addChange(
+            "pickupFloor.hasLift",
+            "Pickup Lift",
+            Boolean(job.pickupFloor?.hasLift),
+            Boolean(pickupFloor.hasLift)
+        );
+
+        addChange(
+            "pickupFloor.hasParking",
+            "Pickup Parking",
+            Boolean(job.pickupFloor?.hasParking),
+            Boolean(pickupFloor.hasParking)
+        );
+
+        // Delivery floor
+        addChange(
+            "deliveryFloor.floorLevel",
+            "Delivery Floor",
+            job.deliveryFloor?.floorLevel || "",
+            deliveryFloor.floorLevel || ""
+        );
+
+        addChange(
+            "deliveryFloor.hasLift",
+            "Delivery Lift",
+            Boolean(job.deliveryFloor?.hasLift),
+            Boolean(deliveryFloor.hasLift)
+        );
+
+        addChange(
+            "deliveryFloor.hasParking",
+            "Delivery Parking",
+            Boolean(job.deliveryFloor?.hasParking),
+            Boolean(deliveryFloor.hasParking)
+        );
+
+        // Schedule
+        addChange(
+            "dateType",
+            "Date Type",
+            job.dateType || "",
+            pricingData.dateType || ""
+        );
+
+        addChange(
+            "date",
+            "Pickup Date",
+            job.date || "",
+            pricingData.date || ""
+        );
+
+        addChange(
+            "timeSlot",
+            "Pickup Time",
+            job.timeSlot || "",
+            pricingData.timeSlot || ""
+        );
+
+        addChange(
+            "estimatedDeliveryTime",
+            "Estimated Delivery Time",
+            job.estimatedDeliveryTime || "",
+            estimatedDeliveryTime
+        );
+
+        // Items
+        addChange(
+            "items",
+            "Items",
+            job.items.map(
+                item => item.toObject?.() || item
+            ),
+            items
+        );
+
+        // Distance
+        addChange(
+            "distance",
+            "Distance",
+            Number(job.distance || 0),
+            Number(pricingData.distance || 0)
+        );
+
+        // Crew / services
+        addChange(
+            "helperCount",
+            "Crew / Helper Count",
+            Number(job.helperCount || 0),
+            Number(helperCount || 0)
+        );
+
+        addChange(
+            "dismantleCount",
+            "Dismantling",
+            Number(job.dismantleCount || 0),
+            Number(dismantleCount || 0)
+        );
+
+        addChange(
+            "assemblyCount",
+            "Assembly",
+            Number(job.assemblyCount || 0),
+            Number(assemblyCount || 0)
+        );
+
+        addChange(
+            "packingService",
+            "Packing Service",
+            Boolean(job.packingService),
+            Boolean(pricingData.packingService)
+        );
+
+        addChange(
+            "smallBoxPackingCount",
+            "Small Box Packing",
+            Number(job.smallBoxPackingCount || 0),
+            Number(
+                pricingData.smallBoxPackingCount || 0
+            )
+        );
+
+        addChange(
+            "mediumBoxPackingCount",
+            "Medium Box Packing",
+            Number(job.mediumBoxPackingCount || 0),
+            Number(
+                pricingData.mediumBoxPackingCount || 0
+            )
+        );
+
+        addChange(
+            "largeBoxPackingCount",
+            "Large Box Packing",
+            Number(job.largeBoxPackingCount || 0),
+            Number(
+                pricingData.largeBoxPackingCount || 0
+            )
+        );
+
+        // Instructions
+        addChange(
+            "specialInstructions",
+            "Special Instructions",
+            job.specialInstructions || "",
+            specialInstructions
+        );
+
+        // Customer / Contact
+        if (body.customer) {
+            addChange(
+                "customer.name",
+                "Customer Name",
+                job.customer?.name || "",
+                body.customer.name ??
+                job.customer?.name ??
+                ""
+            );
+
+            addChange(
+                "customer.phone",
+                "Customer Phone",
+                job.customer?.phone || "",
+                body.customer.phone ??
+                job.customer?.phone ??
+                ""
+            );
+
+            addChange(
+                "customer.email",
+                "Customer Email",
+                job.customer?.email || "",
+                body.customer.email ??
+                job.customer?.email ??
+                ""
+            );
+
+            addChange(
+                "customer.whatsapp",
+                "Customer WhatsApp",
+                job.customer?.whatsapp || "",
+                body.customer.whatsapp ??
+                job.customer?.whatsapp ??
+                ""
+            );
+        }
+
+        // Price
+        addChange(
+            "totalPrice",
+            "Total Price",
+            Number(job.totalPrice || 0),
+            Number(totalPrice || 0)
+        );
+
+        // --------------------------------------------------
+        // NOW UPDATE JOB
+        // --------------------------------------------------
         job.serviceType =
-            body.serviceType || job.serviceType;
+            pricingData.serviceType;
+
         job.pickup = pickup;
         job.delivery = delivery;
+
         job.pickupFloor = pickupFloor;
         job.deliveryFloor = deliveryFloor;
+
         job.items = items;
         job.totalVolume = totalVolume;
-        job.distance = pricingData.distance;
+
+        job.distance =
+            pricingData.distance;
+
         job.estimatedDeliveryTime =
             estimatedDeliveryTime;
 
-        job.dateType = pricingData.dateType;
-        job.date = pricingData.date;
-        job.timeSlot = pricingData.timeSlot;
-        job.helperCount = helperCount;
-        job.dismantleCount = dismantleCount;
-        job.assemblyCount = assemblyCount;
-        job.packingService = pricingData.packingService;
+        job.dateType =
+            pricingData.dateType;
+
+        job.date =
+            pricingData.date;
+
+        job.timeSlot =
+            pricingData.timeSlot;
+
+        job.helperCount =
+            helperCount;
+
+        job.dismantleCount =
+            dismantleCount;
+
+        job.assemblyCount =
+            assemblyCount;
+
+        job.packingService =
+            pricingData.packingService;
+
         job.smallBoxPackingCount =
             pricingData.smallBoxPackingCount;
 
@@ -842,9 +1288,13 @@ const updateJob = async (req, res) => {
 
         job.largeBoxPackingCount =
             pricingData.largeBoxPackingCount;
-        job.specialInstructions = specialInstructions;
+
+        job.specialInstructions =
+            specialInstructions;
+
         job.totalPrice =
             totalPrice;
+
         job.originalPrice =
             originalPrice;
 
@@ -862,19 +1312,86 @@ const updateJob = async (req, res) => {
                 ? `Admin price override. System calculated: £${pricingResult.total}`
                 : (pricingResult.note || "");
 
+        // Customer updates
         if (body.customer) {
             job.customer = {
-                ...(job.customer?.toObject?.() || job.customer || {}),
+                ...(
+                    job.customer?.toObject?.() ||
+                    job.customer ||
+                    {}
+                ),
                 ...body.customer
             };
         }
 
+        // --------------------------------------------------
+        // SAVE CHANGE HISTORY
+        // --------------------------------------------------
+        if (changes.length > 0) {
+            job.changeHistory.push(...changes);
+        }
+
         await job.save();
+
+        await Booking.findByIdAndUpdate(
+            job.booking,
+            {
+                serviceType: job.serviceType,
+                customer: job.customer,
+
+                pickup: job.pickup,
+                delivery: job.delivery,
+
+                pickupFloor: job.pickupFloor,
+                deliveryFloor: job.deliveryFloor,
+
+                items: job.items,
+                totalVolume: job.totalVolume,
+
+                dateType: job.dateType,
+                date: job.date,
+                timeSlot: job.timeSlot,
+
+                distance: job.distance,
+                estimatedDeliveryTime: job.estimatedDeliveryTime,
+
+                helperCount: job.helperCount,
+                dismantleCount: job.dismantleCount,
+                assemblyCount: job.assemblyCount,
+
+                packingService: job.packingService,
+
+                smallBoxPackingCount:
+                    job.smallBoxPackingCount,
+
+                mediumBoxPackingCount:
+                    job.mediumBoxPackingCount,
+
+                largeBoxPackingCount:
+                    job.largeBoxPackingCount,
+
+                specialInstructions:
+                    job.specialInstructions,
+
+                totalPrice: job.totalPrice,
+                originalPrice: job.originalPrice,
+                adminPrice: job.adminPrice,
+
+                priceBreakdown: job.priceBreakdown,
+                pricingStatus: job.pricingStatus,
+                pricingNote: job.pricingNote
+            }
+        );
 
         return res.json({
             success: true,
+            message:
+                changes.length > 0
+                    ? `${changes.length} change(s) saved successfully.`
+                    : "Job updated successfully.",
             data: job
         });
+
     } catch (err) {
         return res.status(500).json({
             success: false,

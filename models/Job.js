@@ -44,6 +44,36 @@ const statusHistorySchema = new mongoose.Schema(
     { _id: false }
 );
 
+const changeHistorySchema = new mongoose.Schema(
+    {
+        field: {
+            type: String,
+            required: true
+        },
+
+        label: {
+            type: String,
+            default: ""
+        },
+
+        previousValue: {
+            type: mongoose.Schema.Types.Mixed,
+            default: null
+        },
+
+        newValue: {
+            type: mongoose.Schema.Types.Mixed,
+            default: null
+        },
+
+        changedAt: {
+            type: Date,
+            default: Date.now
+        }
+    },
+    { _id: true }
+);
+
 const jobSchema = new mongoose.Schema(
     {
         booking: {
@@ -324,6 +354,11 @@ const jobSchema = new mongoose.Schema(
 
         statusHistory: {
             type: [statusHistorySchema],
+            default: []
+        },
+
+        changeHistory: {
+            type: [changeHistorySchema],
             default: []
         },
 
